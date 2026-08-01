@@ -110,3 +110,34 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Production readiness checklist (quick)
+
+- Configure environment variables (see `.env.example`).
+- Set up a Redis instance for production rate-limiting and update `REDIS_URL`.
+- Configure Supabase keys and OAuth redirect URIs in Supabase console.
+- Provision Stripe keys and set `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY`.
+- Add `SENTRY_DSN` when you enable Sentry.
+- Configure webhooks (Stripe, WhatsApp) to point to your production URL and set secrets.
+- Ensure `/api/health` responds from your deployed host for liveness checks.
+- Configure CI to run `npm ci`, `npm run build`, and E2E tests before merging.
+
+## Health/readiness probes
+
+Use the endpoint `GET /api/health` for Kubernetes `livenessProbe` and `readinessProbe`:
+
+```yaml
+livenessProbe:
+	httpGet:
+		path: /api/health
+		port: 3000
+	initialDelaySeconds: 10
+	periodSeconds: 10
+readinessProbe:
+	httpGet:
+		path: /api/health
+		port: 3000
+	initialDelaySeconds: 5
+	periodSeconds: 10
+```
+
