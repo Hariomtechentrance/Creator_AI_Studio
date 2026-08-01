@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Sparkles, Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
@@ -14,6 +14,10 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [phone, setPhone] = useState("");
+  const [otp, setOtp] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [phoneLoading, setPhoneLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,6 +54,52 @@ export default function LoginPage() {
       setError(err instanceof Error ? err.message : "Couldn't reach the server");
     } finally {
       setGoogleLoading(false);
+    }
+  };
+
+  const handleSendOtp = async () => {
+    setPhoneLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/auth/otp/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setError(j?.error || "Failed to send code");
+        return;
+      }
+      setOtpSent(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't reach the server");
+    } finally {
+      setPhoneLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    setPhoneLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/auth/otp/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, token: otp }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setError(j?.error || "Failed to verify code");
+        return;
+      }
+
+      router.push("/dashboard");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't reach the server");
+    } finally {
+      setPhoneLoading(false);
     }
   };
 
@@ -106,6 +156,31 @@ export default function LoginPage() {
             <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
             <span className="text-xs" style={{ color: "var(--text-muted)" }}>or</span>
             <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
+          </div>
+
+          {/* Phone OTP flow */}
+          <div className="space-y-3">
+            <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+              Mobile (SMS OTP)
+            </label>
+            <div className="flex gap-2">
+              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 555 555 5555" className="input flex-1" />
+              <button type="button" onClick={handleSendOtp} disabled={phoneLoading || !phone} className="btn-secondary">
+                {phoneLoading ? <span className="spinner" /> : otpSent ? "Resend" : "Send code"}
+              </button>
+            </div>
+
+            {otpSent && (
+              <div>
+                <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Enter code</label>
+                <div className="flex gap-2">
+                  <input type="text" value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="123456" className="input flex-1" />
+                  <button type="button" onClick={handleVerifyOtp} disabled={phoneLoading || !otp} className="btn-primary">
+                    {phoneLoading ? <span className="spinner" /> : "Verify"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">

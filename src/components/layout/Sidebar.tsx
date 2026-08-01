@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Users, MessageSquare, FileText,
   Calendar, Send, BarChart3, Zap, Bot, Settings, ChevronDown,
-  ChevronRight, Sparkles, Target, Megaphone, Brain, Image, Video,
+  ChevronRight, Sparkles, Target, Megaphone, Brain, Image as ImageIcon, Video,
   Layers, TrendingUp, Bell, CreditCard, PlusCircle, Share2, Palette, Puzzle,
 } from "lucide-react";
 import { useState } from "react";
@@ -90,7 +90,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Creative Studio",
     defaultOpen: true,
     items: [
-      { label: "AI Image Studio", href: "/image-generation", icon: <Image size={15} /> },
+      { label: "AI Image Studio", href: "/image-generation", icon: <ImageIcon size={15} /> },
       { label: "AI Video Studio", href: "/video-generation", icon: <Video size={15} /> },
       { label: "Textures & 3D", href: "/textures-3d", icon: <Layers size={15} /> },
       { label: "Upscaler", href: "/upscaler", icon: <Zap size={15} /> },
