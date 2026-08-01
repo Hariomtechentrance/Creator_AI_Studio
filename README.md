@@ -83,6 +83,17 @@ Recommended actions:
 3. Configure Supabase console: enable Google OAuth redirect and SMS provider (Twilio).
 4. Run E2E tests in CI/staging and verify OTP/email flows.
 
+### Sentry (monitoring)
+
+I added Sentry config files (`sentry.client.config.js`, `sentry.server.config.js`). To enable Sentry, install the SDK and set `SENTRY_DSN` in your environment:
+
+```bash
+# Install Sentry when ready (choose a version compatible with your Next.js)
+# npm install @sentry/nextjs
+```
+
+If `@sentry/nextjs` causes peer-dependency conflicts with your current `next` version, use `@sentry/node` on the server and `@sentry/react` in the browser, or pick a Sentry release compatible with Next 16. Configure `SENTRY_DSN` in your host before deploying.
+
 If you want, I can continue to: wire up CI secrets, add Playwright to devDependencies and run E2E here (requires installing deps), or switch server calls to use the service role key for specific admin-only endpoints. Which one should I do next?
 
 ## Learn More

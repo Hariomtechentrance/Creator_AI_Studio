@@ -13,7 +13,6 @@
     "ci:checks": "npm run lint && npm run build && npx start-server-and-test \"npm run start\" http://localhost:3000 \"npm run test:e2e\" && npm run check:security"
   },
   "dependencies": {
-    "@sentry/nextjs": "^7.10.0",
     "@anthropic-ai/sdk": "^0.110.0",
     "@gradio/client": "^2.3.1",
     "@radix-ui/react-avatar": "^1.1.11",
