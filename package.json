@@ -59,8 +59,7 @@
     "start-server-and-test": "^2.1.5",
     "tailwindcss": "^4",
     "typescript": "^5"
-  }
-  ,
+  },
   "overrides": {
     "postcss": "8.5.25",
     "next": {
