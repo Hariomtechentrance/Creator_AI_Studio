@@ -7,5 +7,12 @@ export function isAnthropicConfigured(): boolean {
 
 // Server-only — never import from a "use client" file.
 export function getAnthropicClient(): Anthropic {
-  return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  // Workspace-scoped ("identity-linked") API keys reject every request unless
+  // they carry the workspace id. Set ANTHROPIC_WORKSPACE_ID for those; a
+  // plain org-level key works without it.
+  const workspaceId = process.env.ANTHROPIC_WORKSPACE_ID;
+  return new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY,
+    ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}),
+  });
 }
