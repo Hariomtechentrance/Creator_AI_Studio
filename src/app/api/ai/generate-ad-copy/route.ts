@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Sign in to generate ad copy" }, { status: 400 });
   }
   if (!isAnthropicConfigured()) {
-    return Response.json({ error: "Ad copy generation isn't configured yet — add ANTHROPIC_API_KEY" }, { status: 400 });
+    return Response.json({ error: "Ad copy generation isn't configured yet — add GEMINI_API_KEY" }, { status: 400 });
   }
 
   let body: { orgId?: string; platform?: string; goal?: string; productDescription?: string };

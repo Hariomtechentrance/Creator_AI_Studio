@@ -29,7 +29,7 @@ export interface Database {
         Row: {
           id: string;
           user_id: string;
-          type: "image" | "video" | "upscale" | "texture" | "avatar_video";
+          type: "image" | "video" | "upscale" | "texture" | "avatar_video" | "scene_script" | "custom_avatar" | "video_stitch";
           prompt: string;
           model: string;
           status: "pending" | "processing" | "completed" | "failed";
@@ -568,7 +568,7 @@ export type SocialPlatform = "instagram" | "facebook" | "linkedin" | "twitter" |
 
 // ─── Content / Publishing ─────────────────────────────────────────────────────
 
-export type PostStatus = "draft" | "pending_approval" | "approved" | "scheduled" | "publishing" | "published" | "failed";
+export type PostStatus = "draft" | "pending_approval" | "approved" | "rejected" | "scheduled" | "publishing" | "published" | "failed";
 export type MediaType = "image" | "video" | "carousel" | "reel" | "story";
 export type PostType = "organic" | "ad" | "story" | "reel" | "carousel" | "campaign";
 

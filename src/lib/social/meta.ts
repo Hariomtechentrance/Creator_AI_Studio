@@ -90,11 +90,11 @@ export async function getMetaPages(userAccessToken: string): Promise<MetaPageAcc
   return pages;
 }
 
-export async function postToFacebookPage(pageId: string, pageAccessToken: string, message: string, imageUrl?: string): Promise<string> {
-  const endpoint = imageUrl ? `${GRAPH_URL}/${pageId}/photos` : `${GRAPH_URL}/${pageId}/feed`;
+export async function postToFacebookPage(pageId: string, pageAccessToken: string, message: string, imageUrl?: string, videoUrl?: string): Promise<string> {
+  const endpoint = videoUrl ? `${GRAPH_URL}/${pageId}/videos` : imageUrl ? `${GRAPH_URL}/${pageId}/photos` : `${GRAPH_URL}/${pageId}/feed`;
   const body = new URLSearchParams({
     access_token: pageAccessToken,
-    ...(imageUrl ? { url: imageUrl, caption: message } : { message }),
+    ...(videoUrl ? { file_url: videoUrl, description: message } : imageUrl ? { url: imageUrl, caption: message } : { message }),
   });
   const res = await fetch(endpoint, { method: "POST", body });
   const data = await res.json();
@@ -102,13 +102,45 @@ export async function postToFacebookPage(pageId: string, pageAccessToken: string
   return data.post_id ?? data.id;
 }
 
-export async function postToInstagram(igUserId: string, pageAccessToken: string, imageUrl: string, caption: string): Promise<string> {
+const IG_CONTAINER_POLL_INTERVAL_MS = 5000;
+const IG_CONTAINER_POLL_TIMEOUT_MS = 4 * 60 * 1000;
+
+/** Video (Reels) containers process asynchronously — image containers are ready immediately, this is only needed for video. */
+async function waitForInstagramContainer(containerId: string, pageAccessToken: string): Promise<void> {
+  const deadline = Date.now() + IG_CONTAINER_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const status = await metaFetch<{ status_code?: string }>(
+      `${GRAPH_URL}/${containerId}?fields=status_code&access_token=${pageAccessToken}`,
+    );
+    if (status.status_code === "FINISHED") return;
+    if (status.status_code === "ERROR" || status.status_code === "EXPIRED") {
+      throw new Error(`Instagram couldn't process the video (${status.status_code})`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, IG_CONTAINER_POLL_INTERVAL_MS));
+  }
+  throw new Error("Instagram video processing timed out");
+}
+
+export async function postToInstagram(
+  igUserId: string,
+  pageAccessToken: string,
+  mediaUrl: string,
+  caption: string,
+  mediaType: "image" | "video" = "image",
+): Promise<string> {
   // Instagram publishing is a two-step process: create a media container,
   // then publish it — a single "post" call doesn't exist for IG.
-  const containerBody = new URLSearchParams({ image_url: imageUrl, caption, access_token: pageAccessToken });
-  const createRes = await fetch(`${GRAPH_URL}/${igUserId}/media`, { method: "POST", body: containerBody });
+  const containerParams: Record<string, string> =
+    mediaType === "video"
+      ? { media_type: "REELS", video_url: mediaUrl, caption, access_token: pageAccessToken }
+      : { image_url: mediaUrl, caption, access_token: pageAccessToken };
+  const createRes = await fetch(`${GRAPH_URL}/${igUserId}/media`, { method: "POST", body: new URLSearchParams(containerParams) });
   const createData = await createRes.json();
   if (!createRes.ok || createData.error) throw new Error(createData.error?.message ?? "Instagram media creation failed");
+
+  if (mediaType === "video") {
+    await waitForInstagramContainer(createData.id, pageAccessToken);
+  }
 
   const publishBody = new URLSearchParams({ creation_id: createData.id, access_token: pageAccessToken });
   const publishRes = await fetch(`${GRAPH_URL}/${igUserId}/media_publish`, { method: "POST", body: publishBody });

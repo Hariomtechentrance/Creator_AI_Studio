@@ -81,6 +81,25 @@ export async function listVoices(limit = 40): Promise<HeyGenVoice[]> {
 const POLL_INTERVAL_MS = 4000;
 const POLL_TIMEOUT_MS = 4 * 60 * 1000; // stay under the route's maxDuration=300s budget
 
+async function pollVideoUntilDone(videoId: string): Promise<string> {
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+    const statusBody = (await heygenFetch(`/v3/videos/${videoId}`)) as {
+      data?: { status?: string; video_url?: string; failure_message?: string | null };
+    };
+    const status = statusBody.data?.status;
+    if (status === "completed" && statusBody.data?.video_url) {
+      return statusBody.data.video_url;
+    }
+    if (status === "failed" || status === "cancelled") {
+      throw new Error(statusBody.data?.failure_message ?? `HeyGen video generation ${status}`);
+    }
+    // status is "waiting" | "pending" | "running" — keep polling
+  }
+  throw new Error("HeyGen video generation timed out — it may still complete, check your HeyGen dashboard");
+}
+
 export async function generateAvatarVideo(input: {
   avatarId: string;
   voiceId: string;
@@ -105,20 +124,62 @@ export async function generateAvatarVideo(input: {
   const videoId = submitBody.data?.video_id;
   if (!videoId) throw new Error(submitBody.error?.message ?? "HeyGen didn't return a video ID");
 
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-    const statusBody = (await heygenFetch(`/v3/videos/${videoId}`)) as {
-      data?: { status?: string; video_url?: string; failure_message?: string | null };
-    };
-    const status = statusBody.data?.status;
-    if (status === "completed" && statusBody.data?.video_url) {
-      return statusBody.data.video_url;
-    }
-    if (status === "failed" || status === "cancelled") {
-      throw new Error(statusBody.data?.failure_message ?? `HeyGen video generation ${status}`);
-    }
-    // status is "waiting" | "pending" | "running" — keep polling
+  return pollVideoUntilDone(videoId);
+}
+
+/**
+ * Uploads a generated face photo as a reusable HeyGen asset. The returned
+ * assetId can be passed straight to generateSceneVideoFromImage as many
+ * times as needed — v3 animates any face photo directly via `type: "image"`,
+ * no avatar-training step required.
+ */
+export async function uploadImageAsset(imageBytes: Buffer, mimeType: string): Promise<{ assetId: string; url: string }> {
+  // Multipart upload — must NOT go through heygenFetch, which forces
+  // Content-Type: application/json for every request.
+  const form = new FormData();
+  form.append("file", new Blob([new Uint8Array(imageBytes)], { type: mimeType }), "face.png");
+
+  const res = await fetch(`${HEYGEN_API_BASE}/v3/assets`, {
+    method: "POST",
+    headers: { "X-Api-Key": apiKey() },
+    body: form,
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    const err = (body as { error?: { message?: string } | string } | null)?.error;
+    const message = (typeof err === "string" ? err : err?.message) ?? `HeyGen asset upload failed (${res.status})`;
+    throw new Error(message);
   }
-  throw new Error("HeyGen video generation timed out — it may still complete, check your HeyGen dashboard");
+
+  const data = (body as { data?: { asset_id?: string; url?: string } })?.data;
+  if (!data?.asset_id) throw new Error("HeyGen didn't return an asset ID");
+  return { assetId: data.asset_id, url: data.url ?? "" };
+}
+
+/** Animates a previously-uploaded face asset (see uploadImageAsset) reading the given script. */
+export async function generateSceneVideoFromImage(input: {
+  assetId: string;
+  script: string;
+  voiceId: string;
+  aspectRatio?: "16:9" | "9:16" | "1:1" | "4:5" | "5:4";
+  resolution?: "720p" | "1080p" | "4k";
+}): Promise<string> {
+  const { assetId, script, voiceId, aspectRatio = "9:16", resolution = "720p" } = input;
+
+  const submitBody = (await heygenFetch("/v3/videos", {
+    method: "POST",
+    body: JSON.stringify({
+      type: "image",
+      image: assetId,
+      script,
+      voice_id: voiceId,
+      aspect_ratio: aspectRatio,
+      resolution,
+    }),
+  })) as { data?: { video_id?: string }; error?: { message?: string } };
+
+  const videoId = submitBody.data?.video_id;
+  if (!videoId) throw new Error(submitBody.error?.message ?? "HeyGen didn't return a video ID");
+
+  return pollVideoUntilDone(videoId);
 }

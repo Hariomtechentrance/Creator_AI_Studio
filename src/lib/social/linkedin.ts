@@ -47,15 +47,84 @@ export async function getLinkedInProfile(accessToken: string): Promise<{ sub: st
   return { sub: data.sub, name: data.name };
 }
 
+interface LinkedInRegisterUploadResponse {
+  value?: {
+    asset?: string;
+    uploadMechanism?: {
+      "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"?: { uploadUrl?: string };
+    };
+  };
+}
+
+async function registerLinkedInVideoUpload(memberSub: string, accessToken: string): Promise<{ uploadUrl: string; asset: string }> {
+  const res = await fetch(`${API_URL}/assets?action=registerUpload`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      "X-Restli-Protocol-Version": "2.0.0",
+    },
+    body: JSON.stringify({
+      registerUploadRequest: {
+        recipes: ["urn:li:digitalmediaRecipe:feedshare-video"],
+        owner: `urn:li:person:${memberSub}`,
+        serviceRelationships: [{ relationshipType: "OWNER", identifier: "urn:li:userGeneratedContent" }],
+      },
+    }),
+  });
+  const data = (await res.json()) as LinkedInRegisterUploadResponse & { message?: string };
+  if (!res.ok) throw new Error(data.message ?? "LinkedIn video upload registration failed");
+
+  const uploadUrl = data.value?.uploadMechanism?.["com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"]?.uploadUrl;
+  const asset = data.value?.asset;
+  if (!uploadUrl || !asset) throw new Error("LinkedIn didn't return an upload URL");
+  return { uploadUrl, asset };
+}
+
+async function uploadLinkedInVideoBytes(uploadUrl: string, accessToken: string, videoUrl: string): Promise<void> {
+  const videoRes = await fetch(videoUrl);
+  if (!videoRes.ok) throw new Error("Couldn't fetch the stitched video to upload to LinkedIn");
+  const bytes = Buffer.from(await videoRes.arrayBuffer());
+  const putRes = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: bytes,
+  });
+  if (!putRes.ok) throw new Error(`LinkedIn video upload failed (${putRes.status})`);
+}
+
 /**
- * Text-only share via the UGC Posts API. Image posts need LinkedIn's
- * separate registerUpload asset flow (upload binary to a returned URL, then
- * reference the asset URN here) — not built; imageUrl is accepted in the
- * signature for API-shape consistency with the other platforms but ignored.
+ * Posts via the UGC Posts API (legacy but still-current `/v2/ugcPosts`
+ * surface this app already uses — not migrated to LinkedIn's newer
+ * versioned REST API here). Video goes through LinkedIn's three-step asset
+ * flow: register an upload slot, PUT the raw bytes to the returned URL,
+ * then reference the resulting asset URN in the post body. Image posting
+ * isn't implemented — mediaType "image" is accepted for signature
+ * consistency with the other platforms but falls back to a text-only post.
  */
-export async function postToLinkedIn(memberSub: string, accessToken: string, text: string, _imageUrl?: string): Promise<string> {
-  void _imageUrl;
+export async function postToLinkedIn(
+  memberSub: string,
+  accessToken: string,
+  text: string,
+  mediaUrl?: string,
+  mediaType?: "image" | "video",
+): Promise<string> {
   const author = `urn:li:person:${memberSub}`;
+  let specificContent: Record<string, unknown> = {
+    shareCommentary: { text },
+    shareMediaCategory: "NONE",
+  };
+
+  if (mediaUrl && mediaType === "video") {
+    const { uploadUrl, asset } = await registerLinkedInVideoUpload(memberSub, accessToken);
+    await uploadLinkedInVideoBytes(uploadUrl, accessToken, mediaUrl);
+    specificContent = {
+      shareCommentary: { text },
+      shareMediaCategory: "VIDEO",
+      media: [{ status: "READY", media: asset }],
+    };
+  }
+
   const res = await fetch(`${API_URL}/ugcPosts`, {
     method: "POST",
     headers: {
@@ -66,12 +135,7 @@ export async function postToLinkedIn(memberSub: string, accessToken: string, tex
     body: JSON.stringify({
       author,
       lifecycleState: "PUBLISHED",
-      specificContent: {
-        "com.linkedin.ugc.ShareContent": {
-          shareCommentary: { text },
-          shareMediaCategory: "NONE",
-        },
-      },
+      specificContent: { "com.linkedin.ugc.ShareContent": specificContent },
       visibility: { "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC" },
     }),
   });

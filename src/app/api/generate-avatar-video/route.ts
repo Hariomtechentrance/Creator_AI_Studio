@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
   if (previewOnly) {
     if (!idea) return Response.json({ error: "Provide an idea to expand into a script" }, { status: 400 });
     if (!isAnthropicConfigured()) {
-      return Response.json({ error: "Script preview needs ANTHROPIC_API_KEY configured — or write your own script instead" }, { status: 400 });
+      return Response.json({ error: "Script preview needs GEMINI_API_KEY configured — or write your own script instead" }, { status: 400 });
     }
     try {
       let brandProfile = null;
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
     let finalScript = script;
     if (!finalScript) {
       if (!isAnthropicConfigured()) {
-        return Response.json({ error: "Describing an idea needs ANTHROPIC_API_KEY configured — or write your own script instead" }, { status: 400 });
+        return Response.json({ error: "Describing an idea needs GEMINI_API_KEY configured — or write your own script instead" }, { status: 400 });
       }
       const brandProfile = orgId && supabase ? await getBrandProfile(supabase, orgId) : null;
       finalScript = await expandIdeaToScript({ idea: idea!, brandProfile });
