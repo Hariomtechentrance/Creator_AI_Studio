@@ -1,0 +1,13 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    allow:
+      - dependency-type: "all"
+    # Security updates will be created automatically; manual PRs may still be
+    # required for transitive/breaking upgrades.

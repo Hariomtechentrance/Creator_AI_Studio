@@ -1,32 +1,58 @@
 "use client";
 
 import Header from "@/components/layout/Header";
-import { useState } from "react";
-import { Video, Upload, Download, Wand2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { Video, Upload, Download, Wand2, X } from "lucide-react";
+import { resizeImageFile } from "@/lib/image";
 
 const PROVIDERS = [
-  { id: "runway", name: "Runway Gen-4", badge: "Premium", cost: 25, maxDuration: 10, desc: "Hollywood-grade cinematic motion", color: "#a855f7" },
-  { id: "kling", name: "Kling 1.6", badge: "30s Ready", cost: 20, maxDuration: 30, desc: "High-fidelity, up to 30s clips", color: "#f59e0b" },
-  { id: "luma", name: "Luma Dream Machine", badge: "Popular", cost: 20, maxDuration: 9, desc: "Smooth photorealistic motion", color: "#06b6d4" },
-  { id: "pika", name: "Pika 2.2", badge: "Fastest", cost: 10, maxDuration: 10, desc: "Creative effects, fast turnaround", color: "#10b981" },
+  { id: "kling", name: "Kling 1.6", badge: "30s Ready", cost: 20, maxDuration: 10, desc: "High-fidelity, up to 30s clips", color: "#f59e0b", requiresImage: false },
+  { id: "luma", name: "Luma Dream Machine", badge: "Popular", cost: 20, maxDuration: 9, desc: "Smooth photorealistic motion", color: "#06b6d4", requiresImage: false },
+  { id: "ltx", name: "LTX 2.3", badge: "Free", cost: 0, maxDuration: 10, desc: "Free community GPU — slower, can be queued or unavailable", color: "#84cc16", requiresImage: false },
+  { id: "wan", name: "Wan 2.1 (Colab)", badge: "Free · Real AI", cost: 0, maxDuration: 6, desc: "Real AI video on your own free Colab GPU — needs the notebook running, see colab/", color: "#38bdf8", requiresImage: false },
+  { id: "kenburns", name: "Ken Burns", badge: "Free · Local", cost: 0, maxDuration: 10, desc: "Pan/zoom effect on your photo — instant, runs on this machine, no AI motion", color: "#f472b6", requiresImage: true },
 ];
 
 const CAMERAS = ["None", "Pan Left", "Pan Right", "Zoom In", "Zoom Out", "Orbit Left", "Orbit Right", "Tilt Up", "Tilt Down", "Crane Up"];
 
 export default function VideoGenerationPage() {
   const [prompt, setPrompt] = useState("");
-  const [provider, setProvider] = useState("runway");
-  const [duration, setDuration] = useState(10);
+  const [provider, setProvider] = useState("kling");
+  const [duration, setDuration] = useState(5);
   const [camera, setCamera] = useState("None");
   const [loading, setLoading] = useState(false);
   const [videoUrl, setVideoUrl] = useState("");
   const [error, setError] = useState("");
   const [mode, setMode] = useState<"text" | "image">("text");
+  const [image, setImage] = useState<string | null>(null);
+  const [imageName, setImageName] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const sel = PROVIDERS.find((p) => p.id === provider)!;
 
+  const handleFileSelect = async (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setError("Please upload an image file"); return; }
+    try {
+      const resized = await resizeImageFile(file);
+      setImage(resized);
+      setImageName(file.name);
+      setError("");
+    } catch {
+      setError("Couldn't read that image file");
+    }
+  };
+
+  const clearImage = () => {
+    setImage(null);
+    setImageName("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
   const generate = async () => {
     if (!prompt.trim()) return;
+    if (mode === "image" && !image) { setError("Upload an image to animate first"); return; }
     setLoading(true);
     setVideoUrl("");
     setError("");
@@ -34,7 +60,13 @@ export default function VideoGenerationPage() {
       const res = await fetch("/api/generate-video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, provider, duration }),
+        body: JSON.stringify({
+          prompt,
+          provider,
+          duration,
+          camera,
+          ...(mode === "image" && image ? { image } : {}),
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -81,7 +113,7 @@ export default function VideoGenerationPage() {
               {PROVIDERS.map((p) => (
                 <button
                   key={p.id}
-                  onClick={() => { setProvider(p.id); setDuration(Math.min(duration, p.maxDuration)); }}
+                  onClick={() => { setProvider(p.id); setDuration(Math.min(duration, p.maxDuration)); if (p.requiresImage) setMode("image"); }}
                   className="w-full text-left p-3 rounded-xl border transition-all"
                   style={{
                     background: provider === p.id ? "rgba(124,58,237,0.12)" : "var(--bg-card)",
@@ -159,26 +191,61 @@ export default function VideoGenerationPage() {
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="p-4 space-y-3" style={{ borderBottom: "1px solid var(--border)" }}>
             {mode === "image" && (
-              <div
-                className="border-2 border-dashed rounded-xl p-6 flex flex-col items-center gap-2 cursor-pointer transition-colors"
-                style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
-              >
-                <Upload size={24} />
-                <p className="text-sm">Drop an image or click to upload</p>
-                <p className="text-xs">JPG, PNG, WEBP — max 10MB</p>
-              </div>
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => handleFileSelect(e.target.files?.[0] ?? null)}
+                />
+                {image ? (
+                  <div className="relative rounded-xl overflow-hidden border" style={{ borderColor: "var(--border)" }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={image} alt="Upload" className="w-full h-40 object-cover" />
+                    <button
+                      onClick={clearImage}
+                      className="absolute top-2 right-2 p-1.5 rounded-lg"
+                      style={{ background: "rgba(0,0,0,0.7)" }}
+                      title="Remove image"
+                    >
+                      <X size={13} className="text-white" />
+                    </button>
+                    <div className="absolute bottom-0 inset-x-0 px-2 py-1 truncate text-[10px]" style={{ background: "rgba(0,0,0,0.7)", color: "var(--text-muted)" }}>
+                      {imageName}
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFileSelect(e.dataTransfer.files?.[0] ?? null); }}
+                    className="border-2 border-dashed rounded-xl p-6 flex flex-col items-center gap-2 cursor-pointer transition-colors"
+                    style={{
+                      borderColor: dragOver ? "rgba(124,58,237,0.6)" : "var(--border)",
+                      background: dragOver ? "rgba(124,58,237,0.08)" : "transparent",
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    <Upload size={24} />
+                    <p className="text-sm">Drop an image or click to upload</p>
+                    <p className="text-xs">JPG, PNG, WEBP — max 10MB</p>
+                  </div>
+                )}
+              </>
             )}
             <div className="flex gap-2">
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Describe the video you want to create… e.g. 'A lone astronaut walking on Mars, dust swirling, cinematic, golden sunset'"
+                placeholder={mode === "image" ? "Describe the motion you want… e.g. 'the woman turns and smiles at the camera'" : "Describe the video you want to create… e.g. 'A lone astronaut walking on Mars, dust swirling, cinematic, golden sunset'"}
                 rows={3}
                 className="input flex-1 resize-none"
               />
               <button
                 onClick={generate}
-                disabled={!prompt.trim() || loading}
+                disabled={!prompt.trim() || loading || (mode === "image" && !image)}
                 className="btn-primary px-5 self-stretch"
                 style={{ minWidth: 120 }}
               >

@@ -5,8 +5,9 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Users, MessageSquare, FileText,
   Calendar, Send, BarChart3, Zap, Bot, Settings, ChevronDown,
-  ChevronRight, Sparkles, Target, Megaphone, Brain, Image, Video,
+  ChevronRight, Sparkles, Target, Megaphone, Brain, Image as ImageIcon, Video,
   Layers, TrendingUp, Bell, CreditCard, PlusCircle, Share2, Palette, Puzzle,
+  UserCircle, CheckCircle2, Clapperboard,
 } from "lucide-react";
 import { useState } from "react";
 import OrgSwitcher from "@/components/layout/OrgSwitcher";
@@ -50,6 +51,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: "Content Studio", href: "/content", icon: <FileText size={15} />, badge: "AI", badgeColor: "purple" },
       { label: "Calendar", href: "/content/calendar", icon: <Calendar size={15} /> },
       { label: "Publishing Hub", href: "/publish", icon: <Send size={15} /> },
+      { label: "Approvals", href: "/approvals", icon: <CheckCircle2 size={15} /> },
       { label: "Landing Pages", href: "/landing-pages", icon: <Layers size={15} />, badge: "AI", badgeColor: "purple" },
     ],
   },
@@ -90,8 +92,10 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Creative Studio",
     defaultOpen: true,
     items: [
-      { label: "AI Image Studio", href: "/image-generation", icon: <Image size={15} /> },
+      { label: "AI Image Studio", href: "/image-generation", icon: <ImageIcon size={15} /> },
       { label: "AI Video Studio", href: "/video-generation", icon: <Video size={15} /> },
+      { label: "AI Avatar Studio", href: "/avatar-studio", icon: <UserCircle size={15} />, badge: "AI", badgeColor: "purple" },
+      { label: "AI Video Pipeline", href: "/video-pipeline", icon: <Clapperboard size={15} />, badge: "AI", badgeColor: "purple" },
       { label: "Textures & 3D", href: "/textures-3d", icon: <Layers size={15} /> },
       { label: "Upscaler", href: "/upscaler", icon: <Zap size={15} /> },
       { label: "Model Training", href: "/model-training", icon: <Brain size={15} /> },

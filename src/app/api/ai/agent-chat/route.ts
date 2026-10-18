@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Sign in to chat with an agent" }, { status: 400 });
   }
   if (!isAnthropicConfigured()) {
-    return Response.json({ error: "AI agents aren't configured yet — add ANTHROPIC_API_KEY" }, { status: 400 });
+    return Response.json({ error: "AI agents aren't configured yet — add GEMINI_API_KEY" }, { status: 400 });
   }
 
   let body: { orgId?: string; agentType?: FullAgentType; leadId?: string; message?: string; history?: { role: "user" | "assistant"; content: string }[] };

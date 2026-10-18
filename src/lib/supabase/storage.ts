@@ -33,6 +33,21 @@ export async function uploadTrainingImages(
   return { paths, error: null };
 }
 
+export async function uploadContentMedia(
+  supabase: SupabaseClient<Database>,
+  orgId: string,
+  buffer: Buffer,
+  mimeType: string,
+  ext: string,
+): Promise<{ url: string | null; error: string | null }> {
+  const path = `${orgId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const { error } = await supabase.storage.from("content-media").upload(path, buffer, { contentType: mimeType, upsert: false });
+  if (error) return { url: null, error: error.message };
+
+  const { data } = supabase.storage.from("content-media").getPublicUrl(path);
+  return { url: data.publicUrl, error: null };
+}
+
 export async function getTrainingImageSignedUrls(
   supabase: SupabaseClient<Database>,
   paths: string[],

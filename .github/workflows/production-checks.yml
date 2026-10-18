@@ -1,0 +1,63 @@
+name: Production Checks
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Security audit
+        run: npm run check:security
+
+  e2e:
+    needs: checks
+    runs-on: ubuntu-latest
+    if: ${{ secrets.PLAYWRIGHT_RUN == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Build
+        run: npm run build
+
+      - name: Start app
+        run: nohup npm run start -- -p 3000 &
+
+      - name: Wait for app
+        run: npx wait-on http://localhost:3000
+
+      - name: Run Playwright
+        run: npx playwright test --config=e2e/playwright.config.ts --reporter=github
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
