@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Header from "@/components/layout/Header";
-import { Megaphone, Wand2, Trash2, TrendingUp, Target, DollarSign, Rocket } from "lucide-react";
+import { Megaphone, Wand2, Trash2, TrendingUp, Target, DollarSign, Rocket, Eye, MousePointerClick, IndianRupee, Percent } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { createCampaignFromAdCopy, updateCampaignStatus, deleteCampaign } from "@/lib/supabase/campaigns";
 import type { Campaign } from "@/types/database";
@@ -29,6 +29,9 @@ export default function CampaignsView({ orgId, userId, initialCampaigns }: { org
   const [saving, setSaving] = useState(false);
   const [launchingId, setLaunchingId] = useState<string | null>(null);
   const [launchNotes, setLaunchNotes] = useState<Record<string, string>>({});
+  const [insights, setInsights] = useState<Record<string, { impressions: number; clicks: number; spend: number; ctr: number; reach: number; hasData: boolean }>>({});
+  const [loadingInsights, setLoadingInsights] = useState<string | null>(null);
+  const [insightsError, setInsightsError] = useState<Record<string, string>>({});
 
   const handleGenerate = async () => {
     if (!description.trim() || !orgId) return;
@@ -111,6 +114,24 @@ export default function CampaignsView({ orgId, userId, initialCampaigns }: { org
     }
   };
 
+  const handleViewInsights = async (campaignId: string) => {
+    setLoadingInsights(campaignId);
+    setInsightsError((prev) => ({ ...prev, [campaignId]: "" }));
+    try {
+      const res = await fetch(`/api/ads/insights?campaignId=${campaignId}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setInsightsError((prev) => ({ ...prev, [campaignId]: data.error ?? "Couldn't load insights" }));
+        return;
+      }
+      setInsights((prev) => ({ ...prev, [campaignId]: data.insights }));
+    } catch (err) {
+      setInsightsError((prev) => ({ ...prev, [campaignId]: err instanceof Error ? err.message : "Couldn't reach the server" }));
+    } finally {
+      setLoadingInsights(null);
+    }
+  };
+
   return (
     <div>
       <Header title="Campaigns" />
@@ -175,6 +196,9 @@ export default function CampaignsView({ orgId, userId, initialCampaigns }: { org
             <p className="text-sm font-bold text-white">Campaigns</p>
             {campaigns.map((c) => {
               const launchPlatform = c.platforms.map((p) => LAUNCHABLE[p]).find(Boolean);
+              const performance = c.performance as unknown as { campaign_id?: string; launched_platform?: string } | null;
+              const isLaunchedOnMeta = performance?.launched_platform === "facebook" && !!performance?.campaign_id;
+              const campaignInsights = insights[c.id];
               return (
                 <div key={c.id} className="rounded-xl p-3.5" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
                   <div className="flex items-start justify-between gap-3 mb-1">
@@ -194,10 +218,51 @@ export default function CampaignsView({ orgId, userId, initialCampaigns }: { org
                         {launchingId === c.id ? <span className="spinner w-3 h-3" /> : <><Rocket size={11} /> Launch</>}
                       </button>
                     )}
-                    <button onClick={() => handleDelete(c.id)} className="ml-auto p-1.5 rounded-lg hover:bg-white/10"><Trash2 size={13} style={{ color: "#f87171" }} /></button>
+                    {isLaunchedOnMeta && (
+                      <button
+                        onClick={() => handleViewInsights(c.id)}
+                        disabled={loadingInsights === c.id}
+                        className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold"
+                        style={{ background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.3)", color: "#c4b5fd" }}
+                      >
+                        {loadingInsights === c.id ? <span className="spinner w-3 h-3" /> : <><TrendingUp size={11} /> Performance</>}
+                      </button>
+                    )}
+                    <button onClick={() => handleDelete(c.id)} className={isLaunchedOnMeta ? "p-1.5 rounded-lg hover:bg-white/10" : "ml-auto p-1.5 rounded-lg hover:bg-white/10"}><Trash2 size={13} style={{ color: "#f87171" }} /></button>
                   </div>
                   {launchNotes[c.id] && (
                     <p className="text-[11px] mt-2" style={{ color: launchNotes[c.id].startsWith("Campaign created") || launchNotes[c.id].startsWith("PAUSED") ? "#34d399" : "#f87171" }}>{launchNotes[c.id]}</p>
+                  )}
+                  {insightsError[c.id] && <p className="text-[11px] mt-2" style={{ color: "#f87171" }}>{insightsError[c.id]}</p>}
+                  {campaignInsights && (
+                    campaignInsights.hasData ? (
+                      <div className="grid grid-cols-4 gap-2 mt-3 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
+                        <div className="text-center">
+                          <Eye size={13} className="mx-auto mb-1" style={{ color: "var(--text-muted)" }} />
+                          <p className="text-sm font-bold text-white">{campaignInsights.impressions.toLocaleString()}</p>
+                          <p className="text-[9px] uppercase" style={{ color: "var(--text-muted)" }}>Impressions</p>
+                        </div>
+                        <div className="text-center">
+                          <MousePointerClick size={13} className="mx-auto mb-1" style={{ color: "var(--text-muted)" }} />
+                          <p className="text-sm font-bold text-white">{campaignInsights.clicks.toLocaleString()}</p>
+                          <p className="text-[9px] uppercase" style={{ color: "var(--text-muted)" }}>Clicks</p>
+                        </div>
+                        <div className="text-center">
+                          <Percent size={13} className="mx-auto mb-1" style={{ color: "var(--text-muted)" }} />
+                          <p className="text-sm font-bold text-white">{campaignInsights.ctr.toFixed(2)}%</p>
+                          <p className="text-[9px] uppercase" style={{ color: "var(--text-muted)" }}>CTR</p>
+                        </div>
+                        <div className="text-center">
+                          <IndianRupee size={13} className="mx-auto mb-1" style={{ color: "var(--text-muted)" }} />
+                          <p className="text-sm font-bold text-white">₹{campaignInsights.spend.toFixed(2)}</p>
+                          <p className="text-[9px] uppercase" style={{ color: "var(--text-muted)" }}>Spend</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] mt-3 pt-3" style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border)" }}>
+                        No data yet — this campaign hasn&apos;t been activated in Meta Ads Manager, so nothing has run.
+                      </p>
+                    )
                   )}
                 </div>
               );

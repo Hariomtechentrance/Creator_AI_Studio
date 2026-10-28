@@ -1,8 +1,12 @@
 import type { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getBrandProfile } from "@/lib/supabase/brand";
 import { generateContent } from "@/lib/ai/contentGeneration";
 import { isAnthropicConfigured } from "@/lib/ai/anthropic";
+import type { Database } from "@/types/database";
+
+const COST = 5;
 
 function isSupabaseConfigured(): boolean {
   return (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").startsWith("http");
@@ -44,6 +48,14 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Not a member of this organization" }, { status: 403 });
   }
 
+  const admin = createAdminClient();
+  const { data: profile } = await admin.from("profiles").select("credits").eq("id", user.id).single();
+  if (!profile) return Response.json({ error: "Profile not found" }, { status: 404 });
+  const creditsBefore = profile.credits;
+  if (creditsBefore < COST) {
+    return Response.json({ error: `Not enough credits — this needs ${COST}, you have ${creditsBefore}` }, { status: 402 });
+  }
+
   const brandProfile = await getBrandProfile(supabase, orgId);
 
   try {
@@ -54,7 +66,26 @@ export async function POST(request: NextRequest) {
       platforms,
       brandProfile,
     });
-    return Response.json({ variations });
+
+    await admin.from("profiles").update({ credits: creditsBefore - COST }).eq("id", user.id);
+    await admin.from("generations").insert({
+      user_id: user.id,
+      type: "content",
+      prompt: topic,
+      model: "groq",
+      status: "completed",
+      output_urls: [],
+      settings: { contentType, tone, platforms } as unknown as Database["public"]["Tables"]["generations"]["Row"]["settings"],
+      credits_used: COST,
+    });
+    await admin.from("credit_transactions").insert({
+      user_id: user.id,
+      amount: -COST,
+      type: "spent",
+      description: "Content Studio generation",
+    });
+
+    return Response.json({ variations, creditsUsed: COST });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Content generation failed";
     return Response.json({ error: message }, { status: 500 });

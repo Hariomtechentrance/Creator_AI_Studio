@@ -200,3 +200,41 @@ export async function createMetaAd(input: {
   if (!res.ok || data.error) throw new Error(data.error?.message ?? "Couldn't create the ad");
   return { adId: data.id };
 }
+
+export interface MetaCampaignInsights {
+  impressions: number;
+  clicks: number;
+  spend: number;
+  ctr: number;
+  reach: number;
+  hasData: boolean;
+}
+
+/**
+ * Real performance data for a campaign via the ads_read permission. A
+ * campaign that's never been activated (every campaign this app creates
+ * starts PAUSED) legitimately has no insights rows yet — that's not an
+ * error, it just means nothing has run. hasData distinguishes "zero
+ * activity" from "the call itself failed", so the UI can show an honest
+ * "not activated yet" state instead of a misleading all-zero chart.
+ */
+export async function getMetaCampaignInsights(accessToken: string, campaignId: string): Promise<MetaCampaignInsights> {
+  const params = new URLSearchParams({
+    fields: "impressions,clicks,spend,ctr,reach",
+    access_token: accessToken,
+  });
+  const res = await fetch(`${GRAPH_URL}/${campaignId}/insights?${params.toString()}`);
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error?.message ?? "Couldn't fetch campaign insights");
+
+  const row = data.data?.[0];
+  if (!row) return { impressions: 0, clicks: 0, spend: 0, ctr: 0, reach: 0, hasData: false };
+  return {
+    impressions: Number(row.impressions ?? 0),
+    clicks: Number(row.clicks ?? 0),
+    spend: Number(row.spend ?? 0),
+    ctr: Number(row.ctr ?? 0),
+    reach: Number(row.reach ?? 0),
+    hasData: true,
+  };
+}

@@ -29,7 +29,7 @@ export interface Database {
         Row: {
           id: string;
           user_id: string;
-          type: "image" | "video" | "upscale" | "texture" | "avatar_video" | "scene_script" | "custom_avatar" | "video_stitch";
+          type: "image" | "video" | "upscale" | "texture" | "avatar_video" | "scene_script" | "custom_avatar" | "video_stitch" | "content";
           prompt: string;
           model: string;
           status: "pending" | "processing" | "completed" | "failed";
