@@ -16,7 +16,7 @@ function isSupabaseConfigured(): boolean {
 
 export async function POST(request: NextRequest) {
   if (!isAnthropicConfigured()) {
-    return Response.json({ error: "Scene script generation needs GEMINI_API_KEY configured in .env.local" }, { status: 400 });
+    return Response.json({ error: "Scene script generation needs GROQ_API_KEY configured in .env.local" }, { status: 400 });
   }
 
   let body: { topic?: string; orgId?: string; numScenes?: number; categoryId?: string };

@@ -16,7 +16,13 @@ export async function publishContentPost(post: ContentPost, accounts: SocialAcco
   const mediaUrl = post.media_urls[0];
 
   for (const platform of post.platforms) {
-    const account = accounts.find((a) => a.platform === platform);
+    const platformAccounts = accounts.filter((a) => a.platform === platform);
+    // Prefer the account explicitly marked default — multiple accounts can be
+    // connected per platform (e.g. two Facebook Pages), and silently picking
+    // whichever row the query happens to return first risked posting to the
+    // wrong Page. Falls back to the first one so single-account orgs (the
+    // common case) keep working with no setup required.
+    const account = platformAccounts.find((a) => a.is_default) ?? platformAccounts[0];
     if (!account || !account.access_token) {
       results[platform] = { success: false, error: "Not connected" };
       continue;

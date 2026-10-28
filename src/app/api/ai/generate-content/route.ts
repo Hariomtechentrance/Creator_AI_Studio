@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Sign in to generate content" }, { status: 400 });
   }
   if (!isAnthropicConfigured()) {
-    return Response.json({ error: "Content generation isn't configured yet — add GEMINI_API_KEY" }, { status: 400 });
+    return Response.json({ error: "Content generation isn't configured yet — add GROQ_API_KEY" }, { status: 400 });
   }
 
   let body: { orgId?: string; topic?: string; contentType?: string; tone?: string; platforms?: string[] };

@@ -489,9 +489,10 @@ export interface Database {
           follower_count: number;
           following_count: number;
           post_count: number;
+          is_default: boolean;
           created_at: string;
         };
-        Insert: Omit<Database["public"]["Tables"]["social_accounts"]["Row"], "id" | "created_at">;
+        Insert: Omit<Database["public"]["Tables"]["social_accounts"]["Row"], "id" | "created_at" | "is_default"> & { is_default?: boolean };
         Update: Partial<Database["public"]["Tables"]["social_accounts"]["Insert"]>;
         Relationships: [];
       };
@@ -564,7 +565,7 @@ export interface TargetAudience {
 
 // ─── Social Accounts ──────────────────────────────────────────────────────────
 
-export type SocialPlatform = "instagram" | "facebook" | "linkedin" | "twitter" | "youtube" | "tiktok" | "google_ads" | "whatsapp";
+export type SocialPlatform = "instagram" | "facebook" | "linkedin" | "twitter" | "youtube" | "tiktok" | "google_ads" | "whatsapp" | "meta_ads";
 
 // ─── Content / Publishing ─────────────────────────────────────────────────────
 

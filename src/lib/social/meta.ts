@@ -8,7 +8,7 @@ export function isMetaConfigured(): boolean {
 }
 
 export function getMetaAuthUrl(redirectUri: string, state: string): string {
-  const scopes = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "instagram_basic", "instagram_content_publish", "business_management", "ads_management"];
+  const scopes = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "instagram_basic", "business_management", "ads_management"];
   const params = new URLSearchParams({
     client_id: process.env.META_APP_ID as string,
     redirect_uri: redirectUri,
@@ -52,6 +52,11 @@ export async function exchangeMetaCode(code: string, redirectUri: string): Promi
   });
   const longLived = await metaFetch<MetaTokenResponse>(`${GRAPH_URL}/oauth/access_token?${longParams.toString()}`);
   return longLived.access_token;
+}
+
+export async function getMetaUser(userAccessToken: string): Promise<{ id: string; name: string }> {
+  const data = await metaFetch<{ id: string; name: string }>(`${GRAPH_URL}/me?fields=id,name&access_token=${userAccessToken}`);
+  return data;
 }
 
 export interface MetaPageAccount {

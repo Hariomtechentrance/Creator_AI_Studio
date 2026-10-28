@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Sign in to generate an AI summary" }, { status: 400 });
   }
   if (!isAnthropicConfigured()) {
-    return Response.json({ error: "AI summaries aren't configured yet — add GEMINI_API_KEY" }, { status: 400 });
+    return Response.json({ error: "AI summaries aren't configured yet — add GROQ_API_KEY" }, { status: 400 });
   }
 
   let body: { leadId?: string };

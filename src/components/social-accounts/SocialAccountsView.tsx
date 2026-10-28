@@ -20,6 +20,7 @@ const PLATFORMS: { id: SocialPlatform; label: string; icon: React.ReactNode; col
 export default function SocialAccountsView({ orgId, initialAccounts, connected, error }: { orgId: string | null; initialAccounts: SocialAccount[]; connected: string | null; error: string | null }) {
   const [accounts, setAccounts] = useState(initialAccounts);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
+  const [settingDefault, setSettingDefault] = useState<string | null>(null);
   const [whatsappOpen, setWhatsappOpen] = useState(false);
 
   const handleDisconnect = async (accountId: string) => {
@@ -33,6 +34,22 @@ export default function SocialAccountsView({ orgId, initialAccounts, connected, 
       if (res.ok) setAccounts((prev) => prev.filter((a) => a.id !== accountId));
     } finally {
       setDisconnecting(null);
+    }
+  };
+
+  const handleSetDefault = async (account: SocialAccount) => {
+    setSettingDefault(account.id);
+    try {
+      const res = await fetch("/api/social/set-default", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: account.id }),
+      });
+      if (res.ok) {
+        setAccounts((prev) => prev.map((a) => (a.platform === account.platform ? { ...a, is_default: a.id === account.id } : a)));
+      }
+    } finally {
+      setSettingDefault(null);
     }
   };
 
@@ -89,10 +106,24 @@ export default function SocialAccountsView({ orgId, initialAccounts, connected, 
                 </div>
                 {connectedAccounts.map((a) => (
                   <div key={a.id} className="flex items-center justify-between mt-2 pl-13 text-xs" style={{ color: "var(--text-muted)" }}>
-                    <span>{a.account_name || a.account_username}</span>
-                    <button onClick={() => handleDisconnect(a.id)} disabled={disconnecting === a.id} className="hover:text-red-400">
-                      {disconnecting === a.id ? "…" : "Disconnect"}
-                    </button>
+                    <span className="flex items-center gap-1.5">
+                      {a.account_name || a.account_username}
+                      {a.is_default && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(16,185,129,0.15)", color: "#34d399" }}>
+                          DEFAULT
+                        </span>
+                      )}
+                    </span>
+                    <span className="flex items-center gap-2.5">
+                      {connectedAccounts.length > 1 && !a.is_default && (
+                        <button onClick={() => handleSetDefault(a)} disabled={settingDefault === a.id} className="hover:text-violet-400">
+                          {settingDefault === a.id ? "…" : "Set default"}
+                        </button>
+                      )}
+                      <button onClick={() => handleDisconnect(a.id)} disabled={disconnecting === a.id} className="hover:text-red-400">
+                        {disconnecting === a.id ? "…" : "Disconnect"}
+                      </button>
+                    </span>
                   </div>
                 ))}
               </div>
@@ -148,6 +179,7 @@ function WhatsAppConnectDialog({ orgId, open, onOpenChange, onConnected }: { org
         token_expires_at: null,
         scopes: [],
         is_active: true,
+        is_default: true,
         last_synced_at: new Date().toISOString(),
         follower_count: 0,
         following_count: 0,

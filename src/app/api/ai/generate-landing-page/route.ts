@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Sign in to generate a landing page" }, { status: 400 });
   }
   if (!isAnthropicConfigured()) {
-    return Response.json({ error: "Landing page generation isn't configured yet — add GEMINI_API_KEY" }, { status: 400 });
+    return Response.json({ error: "Landing page generation isn't configured yet — add GROQ_API_KEY" }, { status: 400 });
   }
 
   let body: { orgId?: string; topic?: string };

@@ -7,7 +7,7 @@ import {
   Calendar, Send, BarChart3, Zap, Bot, Settings, ChevronDown,
   ChevronRight, Sparkles, Target, Megaphone, Brain, Image as ImageIcon, Video,
   Layers, TrendingUp, Bell, CreditCard, PlusCircle, Share2, Palette, Puzzle,
-  UserCircle, CheckCircle2, Clapperboard,
+  UserCircle, CheckCircle2, Clapperboard, PackageSearch, Rocket,
 } from "lucide-react";
 import { useState } from "react";
 import OrgSwitcher from "@/components/layout/OrgSwitcher";
@@ -42,6 +42,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: "Brand Intelligence", href: "/brand", icon: <Brain size={15} />, badge: "AI", badgeColor: "purple" },
       { label: "Brand Kit", href: "/brand-kit", icon: <Palette size={15} /> },
       { label: "Campaigns", href: "/campaigns", icon: <Megaphone size={15} /> },
+      { label: "Run an Ad Campaign", href: "/ad-campaign", icon: <Rocket size={15} />, badge: "AI", badgeColor: "purple" },
     ],
   },
   {
@@ -96,6 +97,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: "AI Video Studio", href: "/video-generation", icon: <Video size={15} /> },
       { label: "AI Avatar Studio", href: "/avatar-studio", icon: <UserCircle size={15} />, badge: "AI", badgeColor: "purple" },
       { label: "AI Video Pipeline", href: "/video-pipeline", icon: <Clapperboard size={15} />, badge: "AI", badgeColor: "purple" },
+      { label: "Product Reel", href: "/product-reel", icon: <PackageSearch size={15} />, badge: "AI", badgeColor: "purple" },
       { label: "Textures & 3D", href: "/textures-3d", icon: <Layers size={15} /> },
       { label: "Upscaler", href: "/upscaler", icon: <Zap size={15} /> },
       { label: "Model Training", href: "/model-training", icon: <Brain size={15} /> },

@@ -198,6 +198,11 @@ export default function ContentPage() {
                   </button>
                 ))}
               </div>
+              {selectedPlatforms.includes("instagram") && (
+                <p className="text-[11px] rounded-lg px-2.5 py-2" style={{ background: "rgba(245,158,11,0.1)", color: "#fbbf24", border: "1px solid rgba(245,158,11,0.2)" }}>
+                  Instagram requires an image or video on every post — this generates text only, so Instagram publishing will fail unless you attach media. Use Product Reel or AI Video Pipeline for Instagram-ready posts.
+                </p>
+              )}
               <div className="space-y-1.5">
                 <p className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Tone</p>
                 <div className="relative">
