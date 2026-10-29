@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { spendCredits } from "@/lib/credits";
 import { generateWithKenBurns } from "@/lib/video/kenBurns";
+import { generateKlingVideoViaPiapi, isPiapiConfigured } from "@/lib/piapi/kling";
+import { uploadContentMedia } from "@/lib/supabase/storage";
 
 export const maxDuration = 300;
 
@@ -125,14 +127,14 @@ const CAMERA_SUFFIX: Record<string, string> = {
 };
 
 export async function POST(request: NextRequest) {
-  let body: { prompt?: string; provider?: string; duration?: number; image?: string; camera?: string };
+  let body: { prompt?: string; provider?: string; duration?: number; image?: string; camera?: string; orgId?: string };
   try {
     body = await request.json();
   } catch {
     return Response.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { prompt, provider = "kling", duration = 5, image, camera = "None" } = body;
+  const { prompt, provider = "kling", duration = 5, image, camera = "None", orgId } = body;
   if (!prompt?.trim()) {
     return Response.json({ error: "Prompt is required" }, { status: 400 });
   }
@@ -143,7 +145,8 @@ export async function POST(request: NextRequest) {
   const isLTX = provider === "ltx";
   const isKenBurns = provider === "kenburns";
   const isColab = provider === "wan";
-  const isReplicate = !isLTX && !isKenBurns && !isColab;
+  const isPiapi = provider === "piapi";
+  const isReplicate = !isLTX && !isKenBurns && !isColab && !isPiapi;
   const modelId = isReplicate ? REPLICATE_VIDEO_MODEL_MAP[provider] : undefined;
   const replicateToken = process.env.REPLICATE_API_TOKEN;
   const colabEndpoint = process.env.COLAB_VIDEO_ENDPOINT;
@@ -161,11 +164,24 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: "Video generation needs REPLICATE_API_TOKEN configured in .env.local" }, { status: 400 });
     }
   }
+  if (isPiapi) {
+    if (!isPiapiConfigured()) {
+      return Response.json({ error: "PiAPI isn't configured yet — add PIAPI_API_KEY in .env.local" }, { status: 400 });
+    }
+    if (!image) {
+      return Response.json({ error: "PiAPI image-to-video needs a source image" }, { status: 400 });
+    }
+    if (!orgId) {
+      return Response.json({ error: "orgId is required for PiAPI generation (needed to host the source image)" }, { status: 400 });
+    }
+  }
 
   const authEnabled = isSupabaseConfigured();
   let userId: string | null = null;
   let creditsBefore = 0;
-  const cost = isReplicate ? 20 : 0;
+  // PiAPI's real-dollar cost runs well under Replicate's for the same model
+  // (live pricing research, not a guess) — the in-app credit cost reflects that.
+  const cost = isReplicate ? 20 : isPiapi ? 12 : 0;
 
   if (authEnabled) {
     const supabase = await createClient();
@@ -186,6 +202,18 @@ export async function POST(request: NextRequest) {
     let videoUrl: string;
     if (isKenBurns) {
       videoUrl = await generateWithKenBurns(image!, duration, camera);
+    } else if (isPiapi) {
+      let sourceImageUrl = image!;
+      // PiAPI needs a real fetchable URL, not the data: URI the UI uploads as.
+      if (sourceImageUrl.startsWith("data:")) {
+        const match = sourceImageUrl.match(/^data:(.+);base64,(.*)$/);
+        if (!match) throw new Error("Invalid image data");
+        const admin = createAdminClient();
+        const { url, error: uploadError } = await uploadContentMedia(admin, orgId!, Buffer.from(match[2], "base64"), match[1], "jpg");
+        if (uploadError || !url) throw new Error(uploadError ?? "Couldn't upload the source image for PiAPI");
+        sourceImageUrl = url;
+      }
+      videoUrl = await generateKlingVideoViaPiapi({ imageUrl: sourceImageUrl, prompt: fullPrompt, durationSeconds: duration, aspectRatio: "9:16" });
     } else if (isLTX) {
       videoUrl = await generateWithLTX(fullPrompt, duration, image);
     } else if (isColab) {

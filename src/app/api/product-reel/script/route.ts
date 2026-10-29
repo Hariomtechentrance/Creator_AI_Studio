@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Scene generation needs GROQ_API_KEY configured in .env.local" }, { status: 400 });
   }
 
-  let body: { topic?: string; orgId?: string; categoryId?: string; numPhotos?: number };
+  let body: { topic?: string; orgId?: string; categoryId?: string; numPhotos?: number; targetDurationSeconds?: number };
   try {
     body = await request.json();
   } catch {
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   }
 
   const topic = body.topic?.trim();
-  const { orgId, categoryId, numPhotos } = body;
+  const { orgId, categoryId, numPhotos, targetDurationSeconds } = body;
   if (!topic) return Response.json({ error: "A product name or brief is required" }, { status: 400 });
   if (!numPhotos || numPhotos < 1) return Response.json({ error: "Upload at least one product photo first" }, { status: 400 });
 
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const brandProfile = orgId && supabase ? await getBrandProfile(supabase, orgId) : null;
-    const scenes = await generateProductReelScenes({ topic, brandProfile, categoryId, numPhotos });
+    const scenes = await generateProductReelScenes({ topic, brandProfile, categoryId, numPhotos, targetDurationSeconds });
 
     if (authEnabled && userId) {
       const admin = createAdminClient();

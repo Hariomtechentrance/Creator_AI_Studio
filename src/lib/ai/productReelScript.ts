@@ -40,7 +40,7 @@ For each photo (in the order given) produce exactly one scene with:
 - camera: pick the single best camera movement for THAT photo/feature from the allowed list only.
 - visualPrompt: a vivid, concrete description of cinematic motion to apply to THIS exact photo for a premium AI video model (e.g. "the product slowly rotates on a reflective dark surface, dramatic rim lighting, subtle light flares drifting across frame" or "camera glides in close on the fabric texture as soft studio light sweeps across it, slow motion"). Describe motion/atmosphere only — never invent new objects, text, logos, or change the product itself from what's in the photo.
 - onScreenText: a short, punchy on-screen text callout (3-8 words) naming or selling the specific feature/benefit that photo shows — this is the only "voice" the video has, so make it count (e.g. "Waterproof up to 50m", "Handmade in small batches", "30-day money-back guarantee").
-- durationSeconds: an integer between 3 and 6, so the whole reel lands in the 20-30 second range across all scenes.
+- durationSeconds: an integer — distribute the given targetTotalDurationSeconds as evenly as possible across all scenes (e.g. a 15s target across 4 photos is roughly 3-4s each; a 30s target across 5 photos is roughly 6s each). Keep each scene between 2 and 10 seconds regardless of the math, and make sure all scene durations add up to approximately that target total (within 2 seconds either way).
 
 Rules:
 - Exactly one scene per photo, same order as given, numbered from 1.
@@ -54,14 +54,16 @@ export async function generateProductReelScenes(input: {
   brandProfile: BrandProfile | null;
   categoryId?: string;
   numPhotos: number;
+  targetDurationSeconds?: number;
 }): Promise<ProductReelScene[]> {
-  const { topic, brandProfile, numPhotos } = input;
+  const { topic, brandProfile, numPhotos, targetDurationSeconds = 25 } = input;
   const category = getContentCategory(input.categoryId);
 
   const userContent = JSON.stringify(
     {
       topic,
       numPhotos,
+      targetTotalDurationSeconds: targetDurationSeconds,
       contentFormat: { name: category.label, structuralConvention: category.promptHint },
       brand: brandProfile
         ? {

@@ -44,6 +44,7 @@ export default function ProductReelView({ orgId, connectedPlatforms }: { orgId: 
   const [aspectRatio, setAspectRatio] = useState<(typeof ASPECT_RATIOS)[number]>("9:16");
   const [quality, setQuality] = useState<Quality>("kenburns");
   const [includeEndCard, setIncludeEndCard] = useState(true);
+  const [targetDuration, setTargetDuration] = useState(20);
 
   // Step 2 — photos
   const [photos, setPhotos] = useState<string[]>([]);
@@ -91,7 +92,7 @@ export default function ProductReelView({ orgId, connectedPlatforms }: { orgId: 
       const res = await fetch("/api/product-reel/script", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic, orgId, categoryId, numPhotos: photos.length }),
+        body: JSON.stringify({ topic, orgId, categoryId, numPhotos: photos.length, targetDurationSeconds: targetDuration }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "Couldn't generate a scene script"); return; }
@@ -119,11 +120,11 @@ export default function ProductReelView({ orgId, connectedPlatforms }: { orgId: 
     return data.videoUrl as string;
   };
 
-  const renderCinematic = async (scene: ReelScene, photo: string, provider: "kling" | "luma") => {
+  const renderCinematic = async (scene: ReelScene, photo: string, provider: "piapi" | "kling" | "luma") => {
     const res = await fetch("/api/generate-video", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: scene.visualPrompt, duration: scene.durationSeconds, camera: scene.camera, provider, image: photo }),
+      body: JSON.stringify({ prompt: scene.visualPrompt, duration: scene.durationSeconds, camera: scene.camera, provider, image: photo, orgId }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? "Scene render failed");
@@ -132,10 +133,12 @@ export default function ProductReelView({ orgId, connectedPlatforms }: { orgId: 
 
   /**
    * AI video providers run on shared capacity and can throw transient
-   * "high demand" / overload errors with no advance warning. A reel
-   * shouldn't fail outright because of that — cinematic mode falls back
-   * Kling -> Luma -> the always-available local Ken Burns render rather
-   * than surfacing the first provider's hiccup as a hard failure.
+   * "high demand" / overload errors, or genuinely run out of account
+   * credit, with no advance warning. A reel shouldn't fail outright because
+   * of that — cinematic mode falls back PiAPI (cheapest real option) ->
+   * Replicate Kling -> Replicate Luma -> the always-available local Ken
+   * Burns render, rather than surfacing the first provider's hiccup (or
+   * empty wallet) as a hard failure.
    */
   const renderOneScene = async (scene: ReelScene, photo: string): Promise<boolean> => {
     setSceneResults((prev) => ({ ...prev, [scene.sceneNumber]: { status: "running" } }));
@@ -152,8 +155,9 @@ export default function ProductReelView({ orgId, connectedPlatforms }: { orgId: 
     }
 
     const attempts: { label: string; run: () => Promise<string> }[] = [
-      { label: "Kling", run: () => renderCinematic(scene, photo, "kling") },
-      { label: "Luma", run: () => renderCinematic(scene, photo, "luma") },
+      { label: "PiAPI (Kling)", run: () => renderCinematic(scene, photo, "piapi") },
+      { label: "Kling (Replicate)", run: () => renderCinematic(scene, photo, "kling") },
+      { label: "Luma (Replicate)", run: () => renderCinematic(scene, photo, "luma") },
       { label: "Ken Burns (fallback)", run: () => renderKenBurns(scene, photo) },
     ];
     let lastError = "";
@@ -353,6 +357,26 @@ export default function ProductReelView({ orgId, connectedPlatforms }: { orgId: 
               </div>
             </div>
             <div>
+              <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>How long should the video be?</p>
+              <div className="flex flex-wrap gap-2">
+                {[5, 10, 15, 20, 25, 30].map((secs) => (
+                  <button
+                    key={secs}
+                    onClick={() => setTargetDuration(secs)}
+                    className="px-3.5 py-2 rounded-lg text-xs font-semibold transition-all"
+                    style={{
+                      background: targetDuration === secs ? "rgba(124,58,237,0.2)" : "rgba(255,255,255,0.04)",
+                      border: `1px solid ${targetDuration === secs ? "rgba(124,58,237,0.5)" : "rgba(255,255,255,0.08)"}`,
+                      color: targetDuration === secs ? "#c4b5fd" : "var(--text-secondary)",
+                    }}
+                  >
+                    {secs}s
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] mt-1.5" style={{ color: "var(--text-muted)" }}>More photos = more scenes needed to fill a longer video — upload enough for the length you pick.</p>
+            </div>
+            <div>
               <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>Aspect Ratio</p>
               <div className="flex gap-2">
                 {ASPECT_RATIOS.map((ar) => (
@@ -393,7 +417,7 @@ export default function ProductReelView({ orgId, connectedPlatforms }: { orgId: 
                     border: `1px solid ${quality === "cinematic" ? "rgba(124,58,237,0.5)" : "rgba(255,255,255,0.08)"}`,
                   }}
                 >
-                  <p className="text-xs font-bold" style={{ color: quality === "cinematic" ? "#c4b5fd" : "var(--text-secondary)" }}>Cinematic AI (Kling)</p>
+                  <p className="text-xs font-bold" style={{ color: quality === "cinematic" ? "#c4b5fd" : "var(--text-secondary)" }}>Cinematic AI</p>
                   <p className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>Real motion/lighting, paid per clip</p>
                 </button>
               </div>
@@ -520,7 +544,7 @@ export default function ProductReelView({ orgId, connectedPlatforms }: { orgId: 
                   {result?.status === "running" && <RefreshCw size={14} className="animate-spin" style={{ color: "#a78bfa" }} />}
                   {result?.status === "done" && (
                     <span className="flex items-center gap-1.5">
-                      {result.usedProvider && result.usedProvider !== "Kling" && (
+                      {result.usedProvider && result.usedProvider !== "PiAPI (Kling)" && (
                         <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>via {result.usedProvider}</span>
                       )}
                       <Check size={14} style={{ color: "#34d399" }} />
