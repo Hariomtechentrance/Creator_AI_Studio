@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, ContentPost, SocialAccount } from "@/types/database";
 import { postToFacebookPage, postToInstagram } from "@/lib/social/meta";
 import { postToLinkedIn } from "@/lib/social/linkedin";
+import { uploadYoutubeVideo, refreshGoogleToken } from "@/lib/social/google";
 
 export type PublishResults = Record<string, { success: boolean; error?: string; id?: string }>;
 
@@ -40,6 +41,19 @@ export async function publishContentPost(post: ContentPost, accounts: SocialAcco
         results[platform] = { success: true, id };
       } else if (platform === "linkedin") {
         const id = await postToLinkedIn(account.account_id, account.access_token, post.caption ?? "", mediaUrl, isVideo ? "video" : "image");
+        results[platform] = { success: true, id };
+      } else if (platform === "youtube") {
+        // YouTube only accepts video uploads. Google access tokens expire ~1h,
+        // so mint a fresh one from the stored refresh token before uploading —
+        // a connected account is usually well past its original access token by
+        // publish time.
+        if (!mediaUrl) throw new Error("YouTube requires a video — this post has none");
+        if (!isVideo) throw new Error("YouTube posting currently supports video only");
+        const accessToken = account.refresh_token
+          ? await refreshGoogleToken(account.refresh_token)
+          : account.access_token;
+        const title = (post.title ?? (post.caption ?? "Untitled")).slice(0, 99);
+        const id = await uploadYoutubeVideo(accessToken, mediaUrl, title, post.caption ?? "");
         results[platform] = { success: true, id };
       } else {
         results[platform] = { success: false, error: "Publishing not built for this platform yet" };

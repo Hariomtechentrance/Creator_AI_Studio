@@ -43,6 +43,7 @@ export default function ProductReelView({ orgId, connectedPlatforms }: { orgId: 
   const [categoryId, setCategoryId] = useState("product_showcase");
   const [aspectRatio, setAspectRatio] = useState<(typeof ASPECT_RATIOS)[number]>("9:16");
   const [quality, setQuality] = useState<Quality>("kenburns");
+  const [includeEndCard, setIncludeEndCard] = useState(true);
 
   // Step 2 — photos
   const [photos, setPhotos] = useState<string[]>([]);
@@ -173,13 +174,31 @@ export default function ProductReelView({ orgId, connectedPlatforms }: { orgId: 
     setStitching(true);
     setError("");
     try {
-      const clips = scenes.map((s, i) => ({
+      const clips: { url: string; type: "broll"; durationSeconds: number; onScreenText: string; transition: "cut" | "crossfade" }[] = scenes.map((s, i) => ({
         url: results[s.sceneNumber]?.url ?? "",
         type: "broll" as const,
         durationSeconds: s.durationSeconds,
         onScreenText: s.onScreenText,
         transition: i === 0 ? ("cut" as const) : ("crossfade" as const),
       }));
+
+      if (includeEndCard && orgId) {
+        try {
+          const cardRes = await fetch("/api/video/contact-card", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ orgId, aspectRatio, durationSeconds: 4 }),
+          });
+          const cardData = await cardRes.json();
+          if (cardRes.ok && cardData.videoUrl) {
+            clips.push({ url: cardData.videoUrl, type: "broll", durationSeconds: 4, onScreenText: "", transition: "crossfade" });
+          }
+          // A failed end-card shouldn't block the whole reel — the scenes themselves already rendered fine.
+        } catch {
+          // Same reasoning — swallow and continue without the card.
+        }
+      }
+
       const res = await fetch("/api/video-pipeline/stitch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -379,6 +398,10 @@ export default function ProductReelView({ orgId, connectedPlatforms }: { orgId: 
                 </button>
               </div>
             </div>
+            <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer" style={{ color: "var(--text-secondary)" }}>
+              <input type="checkbox" checked={includeEndCard} onChange={(e) => setIncludeEndCard(e.target.checked)} className="w-4 h-4" />
+              End with a branded contact card (logo, website, phone — from your Brand Kit)
+            </label>
             <button
               onClick={() => setStep("photos")}
               disabled={!topic.trim()}

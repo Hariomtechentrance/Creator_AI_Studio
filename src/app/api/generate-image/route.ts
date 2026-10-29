@@ -2,6 +2,7 @@ import Replicate from "replicate";
 import type { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { spendCredits } from "@/lib/credits";
 import { IMAGE_MODEL_COST, DEFAULT_IMAGE_MODEL_COST } from "@/lib/models";
 
 export const maxDuration = 120;
@@ -442,7 +443,9 @@ export async function POST(request: NextRequest) {
       creditsUsed = modelCost * images.length;
 
       const admin = createAdminClient();
-      await admin.from("profiles").update({ credits: creditsBefore - creditsUsed }).eq("id", userId);
+      if (!(await spendCredits(admin, userId, creditsUsed))) {
+        return Response.json({ error: "Not enough credits — top up to continue" }, { status: 402 });
+      }
       await admin.from("generations").insert({
         user_id: userId,
         type: "image",

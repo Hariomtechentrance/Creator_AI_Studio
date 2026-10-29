@@ -94,10 +94,10 @@ const PLANS = [
 ];
 
 const CREDIT_PACKS = [
-  { credits: 1000, price: 5, bonus: 0 },
-  { credits: 5000, price: 20, bonus: 10 },
-  { credits: 15000, price: 50, bonus: 20 },
-  { credits: 50000, price: 150, bonus: 30 },
+  { id: "pack-1k", credits: 1000, price: 5, bonus: 0 },
+  { id: "pack-5k", credits: 5000, price: 20, bonus: 10 },
+  { id: "pack-15k", credits: 15000, price: 50, bonus: 20 },
+  { id: "pack-50k", credits: 50000, price: 150, bonus: 30 },
 ];
 
 const CREDIT_COSTS = [
@@ -113,6 +113,7 @@ const CREDIT_COSTS = [
 
 export default function PricingPage() {
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+  const [loadingPack, setLoadingPack] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const handleUpgrade = async (planId: string, priceId: string | undefined) => {
@@ -138,6 +139,28 @@ export default function PricingPage() {
       setError(err instanceof Error ? err.message : "Couldn't reach the server");
     } finally {
       setLoadingPlan(null);
+    }
+  };
+
+  const handleBuyPack = async (packId: string) => {
+    setLoadingPack(packId);
+    setError("");
+    try {
+      const res = await fetch("/api/billing/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Couldn't start checkout");
+        return;
+      }
+      window.location.assign(data.url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't reach the server");
+    } finally {
+      setLoadingPack(null);
     }
   };
 
@@ -219,13 +242,19 @@ export default function PricingPage() {
           <h2 className="text-2xl font-black text-white mb-2">Buy Credit Packs</h2>
           <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>One-time purchases — credits never expire</p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {CREDIT_PACKS.map(({ credits, price, bonus }) => (
-              <div key={credits} className="card card-hover text-center space-y-3">
+            {CREDIT_PACKS.map(({ id, credits, price, bonus }) => (
+              <div key={id} className="card card-hover text-center space-y-3">
                 <div className="text-3xl font-black text-white">{credits.toLocaleString()}</div>
                 <div className="text-sm" style={{ color: "var(--text-muted)" }}>credits</div>
                 {bonus > 0 && <span className="badge badge-green">+{bonus}% bonus</span>}
                 <div className="text-2xl font-black" style={{ color: "#f59e0b" }}>${price}</div>
-                <button className="btn-secondary w-full justify-center text-sm">Buy Now</button>
+                <button
+                  onClick={() => handleBuyPack(id)}
+                  disabled={loadingPack === id}
+                  className="btn-secondary w-full justify-center text-sm"
+                >
+                  {loadingPack === id ? <span className="spinner" /> : "Buy Now"}
+                </button>
               </div>
             ))}
           </div>

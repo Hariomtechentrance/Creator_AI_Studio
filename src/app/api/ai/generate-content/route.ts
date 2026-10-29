@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { spendCredits } from "@/lib/credits";
 import { getBrandProfile } from "@/lib/supabase/brand";
 import { generateContent } from "@/lib/ai/contentGeneration";
 import { isAnthropicConfigured } from "@/lib/ai/anthropic";
@@ -67,7 +68,9 @@ export async function POST(request: NextRequest) {
       brandProfile,
     });
 
-    await admin.from("profiles").update({ credits: creditsBefore - COST }).eq("id", user.id);
+    if (!(await spendCredits(admin, user.id, COST))) {
+      return Response.json({ error: "Not enough credits — top up to continue" }, { status: 402 });
+    }
     await admin.from("generations").insert({
       user_id: user.id,
       type: "content",

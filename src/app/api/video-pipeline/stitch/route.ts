@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { spendCredits } from "@/lib/credits";
 import { uploadContentMedia } from "@/lib/supabase/storage";
 import { renderCaptionPng } from "@/lib/video/caption";
 
@@ -264,7 +265,9 @@ export async function POST(request: NextRequest) {
     if (uploadError || !url) throw new Error(uploadError ?? "Upload failed");
 
     if (userId) {
-      await admin.from("profiles").update({ credits: creditsBefore - COST }).eq("id", userId);
+      if (!(await spendCredits(admin, userId, COST))) {
+        return Response.json({ error: "Not enough credits — top up to continue" }, { status: 402 });
+      }
       await admin.from("generations").insert({
         user_id: userId,
         type: "video_stitch",

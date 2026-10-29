@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getStripeClient, isStripeConfigured } from "@/lib/stripe";
+import { getStripeClient, isStripeConfigured, findCreditPack } from "@/lib/stripe";
 
 function isSupabaseConfigured(): boolean {
   return (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").startsWith("http");
@@ -15,15 +15,15 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Billing isn't configured yet — add STRIPE_SECRET_KEY and price IDs to .env.local" }, { status: 400 });
   }
 
-  let body: { priceId?: string };
+  let body: { priceId?: string; packId?: string };
   try {
     body = await request.json();
   } catch {
     return Response.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  if (!body.priceId) {
-    return Response.json({ error: "priceId is required" }, { status: 400 });
+  if (!body.priceId && !body.packId) {
+    return Response.json({ error: "priceId or packId is required" }, { status: 400 });
   }
 
   const supabase = await createClient();
@@ -47,6 +47,34 @@ export async function POST(request: NextRequest) {
       const customer = await stripe.customers.create({ email: profile.email, metadata: { userId: user.id } });
       customerId = customer.id;
       await admin.from("profiles").update({ stripe_customer_id: customerId }).eq("id", user.id);
+    }
+
+    // One-time credit pack (wallet recharge): `payment` mode with inline
+    // price_data so no pre-created Stripe Price is needed. The credit amount
+    // is carried in metadata and trusted only because it's set server-side.
+    if (body.packId) {
+      const pack = findCreditPack(body.packId);
+      if (!pack) {
+        return Response.json({ error: "Unknown credit pack" }, { status: 400 });
+      }
+      const session = await stripe.checkout.sessions.create({
+        customer: customerId,
+        mode: "payment",
+        line_items: [
+          {
+            quantity: 1,
+            price_data: {
+              currency: pack.currency,
+              unit_amount: pack.amountCents,
+              product_data: { name: `${pack.credits.toLocaleString()} CreatorAI credits` },
+            },
+          },
+        ],
+        success_url: `${appUrl}/pricing?checkout=success&kind=pack`,
+        cancel_url: `${appUrl}/pricing?checkout=cancelled`,
+        metadata: { userId: user.id, kind: "credit_pack", credits: String(pack.credits), packId: pack.id },
+      });
+      return Response.json({ url: session.url });
     }
 
     const session = await stripe.checkout.sessions.create({

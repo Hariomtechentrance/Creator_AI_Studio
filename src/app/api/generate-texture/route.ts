@@ -2,6 +2,7 @@ import Replicate from "replicate";
 import type { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { spendCredits } from "@/lib/credits";
 import { derivePbrMaps } from "@/lib/textures/pbr";
 
 export const maxDuration = 120;
@@ -97,7 +98,9 @@ export async function POST(request: NextRequest) {
 
     if (authEnabled && userId) {
       const admin = createAdminClient();
-      await admin.from("profiles").update({ credits: creditsBefore - cost }).eq("id", userId);
+      if (!(await spendCredits(admin, userId, cost))) {
+        return Response.json({ error: "Not enough credits — top up to continue" }, { status: 402 });
+      }
       await admin.from("generations").insert({
         user_id: userId,
         type: "texture",

@@ -71,6 +71,16 @@ export interface Database {
         Update: never;
         Relationships: [];
       };
+      processed_stripe_events: {
+        Row: {
+          event_id: string;
+          event_type: string;
+          processed_at: string;
+        };
+        Insert: { event_id: string; event_type: string; processed_at?: string };
+        Update: never;
+        Relationships: [];
+      };
       organizations: {
         Row: {
           id: string;
@@ -507,6 +517,14 @@ export interface Database {
         Args: { p_page_id: string; p_variant: "a" | "b"; p_kind: "views" | "conversions" };
         Returns: undefined;
       };
+      spend_credits: {
+        Args: { p_user_id: string; p_amount: number };
+        Returns: { success: boolean; credits_after: number }[];
+      };
+      add_credits: {
+        Args: { p_user_id: string; p_amount: number };
+        Returns: { success: boolean; credits_after: number }[];
+      };
     };
   };
 }
@@ -565,7 +583,7 @@ export interface TargetAudience {
 
 // ─── Social Accounts ──────────────────────────────────────────────────────────
 
-export type SocialPlatform = "instagram" | "facebook" | "linkedin" | "twitter" | "youtube" | "tiktok" | "google_ads" | "whatsapp" | "meta_ads";
+export type SocialPlatform = "instagram" | "facebook" | "linkedin" | "twitter" | "youtube" | "tiktok" | "google_ads" | "google_business" | "whatsapp" | "meta_ads";
 
 // ─── Content / Publishing ─────────────────────────────────────────────────────
 

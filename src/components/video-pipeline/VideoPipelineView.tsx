@@ -53,6 +53,7 @@ export default function VideoPipelineView({ orgId, connectedPlatforms }: { orgId
   // Step 2 — scenes
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [aspectRatio, setAspectRatio] = useState<(typeof ASPECT_RATIOS)[number]>("9:16");
+  const [includeEndCard, setIncludeEndCard] = useState(true);
 
   // Step 3 — media (product photos + presenter face)
   const [productPhotos, setProductPhotos] = useState<string[]>([]);
@@ -225,13 +226,31 @@ export default function VideoPipelineView({ orgId, connectedPlatforms }: { orgId
     setStitching(true);
     setError("");
     try {
-      const clips = scenes.map((s) => ({
+      const clips: { url: string; type: "presenter" | "broll"; durationSeconds: number; onScreenText: string; transition: "cut" | "crossfade" }[] = scenes.map((s) => ({
         url: results[s.sceneNumber]?.url ?? "",
         type: s.type,
         durationSeconds: s.durationSeconds,
         onScreenText: s.onScreenText,
         transition: s.transition,
       }));
+
+      if (includeEndCard && orgId) {
+        try {
+          const cardRes = await fetch("/api/video/contact-card", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ orgId, aspectRatio, durationSeconds: 4 }),
+          });
+          const cardData = await cardRes.json();
+          if (cardRes.ok && cardData.videoUrl) {
+            clips.push({ url: cardData.videoUrl, type: "broll", durationSeconds: 4, onScreenText: "", transition: "crossfade" });
+          }
+          // A failed end-card shouldn't block the whole video — the scenes themselves already rendered fine.
+        } catch {
+          // Same reasoning — swallow and continue without the card.
+        }
+      }
+
       const res = await fetch("/api/video-pipeline/stitch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -325,6 +344,11 @@ export default function VideoPipelineView({ orgId, connectedPlatforms }: { orgId
               ))}
             </div>
           </div>
+
+          <label className="flex items-start gap-2 text-xs font-semibold cursor-pointer" style={{ color: "var(--text-secondary)" }}>
+            <input type="checkbox" checked={includeEndCard} onChange={(e) => setIncludeEndCard(e.target.checked)} className="w-4 h-4 mt-0.5" />
+            End with a branded contact card (logo, website, phone — from your Brand Kit)
+          </label>
 
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-secondary)" }}>Steps</label>

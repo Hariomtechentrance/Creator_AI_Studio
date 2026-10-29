@@ -3,10 +3,11 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import Header from "@/components/layout/Header";
-import { Camera, Briefcase, ThumbsUp, PlaySquare, X as Twitter, Music2, Share2, CheckCircle2, Target, MessageCircle, X } from "lucide-react";
+import { Camera, Briefcase, ThumbsUp, PlaySquare, X as Twitter, Music2, Share2, CheckCircle2, Target, MessageCircle, X, MapPin } from "lucide-react";
 import type { SocialAccount, SocialPlatform } from "@/types/database";
+import GbpPanel from "./GbpPanel";
 
-const PLATFORMS: { id: SocialPlatform; label: string; icon: React.ReactNode; color: string; connectVia: "meta" | "linkedin" | "google" | "whatsapp" | null }[] = [
+const PLATFORMS: { id: SocialPlatform; label: string; icon: React.ReactNode; color: string; connectVia: "meta" | "linkedin" | "google" | "whatsapp" | "gbp" | null }[] = [
   { id: "instagram", label: "Instagram", icon: <Camera size={20} />, color: "#e1306c", connectVia: "meta" },
   { id: "facebook", label: "Facebook", icon: <ThumbsUp size={20} />, color: "#1877f2", connectVia: "meta" },
   { id: "linkedin", label: "LinkedIn", icon: <Briefcase size={20} />, color: "#0077b5", connectVia: "linkedin" },
@@ -15,6 +16,7 @@ const PLATFORMS: { id: SocialPlatform; label: string; icon: React.ReactNode; col
   { id: "youtube", label: "YouTube Shorts", icon: <PlaySquare size={20} />, color: "#ff0000", connectVia: "google" },
   { id: "tiktok", label: "TikTok", icon: <Music2 size={20} />, color: "#25f4ee", connectVia: null },
   { id: "google_ads", label: "Google Ads", icon: <Target size={20} />, color: "#4285f4", connectVia: "google" },
+  { id: "google_business", label: "Google Business Profile", icon: <MapPin size={20} />, color: "#34a853", connectVia: "gbp" },
 ];
 
 export default function SocialAccountsView({ orgId, initialAccounts, connected, error }: { orgId: string | null; initialAccounts: SocialAccount[]; connected: string | null; error: string | null }) {
@@ -131,6 +133,8 @@ export default function SocialAccountsView({ orgId, initialAccounts, connected, 
           })}
         </div>
       </div>
+
+      <GbpPanel accounts={accounts} />
 
       {orgId && (
         <WhatsAppConnectDialog
