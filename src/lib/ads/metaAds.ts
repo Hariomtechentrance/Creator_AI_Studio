@@ -238,3 +238,24 @@ export async function getMetaCampaignInsights(accessToken: string, campaignId: s
     hasData: true,
   };
 }
+
+/**
+ * Actually starts/stops the real campaign on Meta — this is the piece that
+ * was missing: the app's "Pause"/"Activate" button previously only changed
+ * our own database label, which could silently diverge from what the
+ * campaign was actually doing (and spending) on Meta's side.
+ */
+export async function updateMetaCampaignStatus(accessToken: string, campaignId: string, status: "ACTIVE" | "PAUSED"): Promise<void> {
+  const body = new URLSearchParams({ status, access_token: accessToken });
+  const res = await fetch(`${GRAPH_URL}/${campaignId}`, { method: "POST", body });
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error?.message ?? "Couldn't update campaign status on Meta");
+}
+
+/** Updates the daily budget on the ad set actually carrying it (campaigns created by this app don't use campaign-level budget — see createMetaAdSet). */
+export async function updateMetaAdSetBudget(accessToken: string, adSetId: string, dailyBudgetInr: number): Promise<void> {
+  const body = new URLSearchParams({ daily_budget: String(Math.round(dailyBudgetInr * 100)), access_token: accessToken });
+  const res = await fetch(`${GRAPH_URL}/${adSetId}`, { method: "POST", body });
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error?.message ?? "Couldn't update the budget on Meta");
+}

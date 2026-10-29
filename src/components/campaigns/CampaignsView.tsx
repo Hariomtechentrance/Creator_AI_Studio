@@ -4,7 +4,7 @@ import { useState } from "react";
 import Header from "@/components/layout/Header";
 import { Megaphone, Wand2, Trash2, TrendingUp, Target, DollarSign, Rocket, Eye, MousePointerClick, IndianRupee, Percent } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { createCampaignFromAdCopy, updateCampaignStatus, deleteCampaign } from "@/lib/supabase/campaigns";
+import { createCampaignFromAdCopy, deleteCampaign } from "@/lib/supabase/campaigns";
 import type { Campaign } from "@/types/database";
 import type { AdCopyResult } from "@/lib/ai/adCopy";
 
@@ -32,6 +32,12 @@ export default function CampaignsView({ orgId, userId, initialCampaigns }: { org
   const [insights, setInsights] = useState<Record<string, { impressions: number; clicks: number; spend: number; ctr: number; reach: number; hasData: boolean }>>({});
   const [loadingInsights, setLoadingInsights] = useState<string | null>(null);
   const [insightsError, setInsightsError] = useState<Record<string, string>>({});
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [toggleError, setToggleError] = useState<Record<string, string>>({});
+  const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null);
+  const [budgetInput, setBudgetInput] = useState("");
+  const [savingBudget, setSavingBudget] = useState(false);
+  const [budgetError, setBudgetError] = useState<Record<string, string>>({});
 
   const handleGenerate = async () => {
     if (!description.trim() || !orgId) return;
@@ -80,9 +86,61 @@ export default function CampaignsView({ orgId, userId, initialCampaigns }: { org
 
   const handleToggleStatus = async (c: Campaign) => {
     const next = c.status === "active" ? "paused" : "active";
-    setCampaigns((prev) => prev.map((x) => (x.id === c.id ? { ...x, status: next } : x)));
-    const supabase = createClient();
-    await updateCampaignStatus(supabase, c.id, next);
+    setTogglingId(c.id);
+    setToggleError((prev) => ({ ...prev, [c.id]: "" }));
+    try {
+      const res = await fetch("/api/ads/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ campaignId: c.id, status: next }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setToggleError((prev) => ({ ...prev, [c.id]: data.error ?? "Couldn't update status" }));
+        return;
+      }
+      // Only reflect the new state locally once Meta has actually confirmed
+      // it (or, for a draft that never reached Meta, once the local update
+      // itself succeeded) — never flip the label optimistically before that.
+      setCampaigns((prev) => prev.map((x) => (x.id === c.id ? { ...x, status: next } : x)));
+    } catch (err) {
+      setToggleError((prev) => ({ ...prev, [c.id]: err instanceof Error ? err.message : "Couldn't reach the server" }));
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+  const handleStartEditBudget = (c: Campaign) => {
+    setEditingBudgetId(c.id);
+    setBudgetInput(String(c.budget || ""));
+  };
+
+  const handleSaveBudget = async (campaignId: string) => {
+    const dailyBudget = Number(budgetInput);
+    if (!dailyBudget || dailyBudget < 100) {
+      setBudgetError((prev) => ({ ...prev, [campaignId]: "Minimum ₹100/day" }));
+      return;
+    }
+    setSavingBudget(true);
+    setBudgetError((prev) => ({ ...prev, [campaignId]: "" }));
+    try {
+      const res = await fetch("/api/ads/budget", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ campaignId, dailyBudget }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setBudgetError((prev) => ({ ...prev, [campaignId]: data.error ?? "Couldn't update budget" }));
+        return;
+      }
+      setCampaigns((prev) => prev.map((x) => (x.id === campaignId ? { ...x, budget: dailyBudget } : x)));
+      setEditingBudgetId(null);
+    } catch (err) {
+      setBudgetError((prev) => ({ ...prev, [campaignId]: err instanceof Error ? err.message : "Couldn't reach the server" }));
+    } finally {
+      setSavingBudget(false);
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -205,9 +263,19 @@ export default function CampaignsView({ orgId, userId, initialCampaigns }: { org
                     <p className="text-sm font-semibold text-white">{c.name}</p>
                     <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase shrink-0" style={{ background: `${STATUS_COLOR[c.status] ?? "#6b7280"}20`, color: STATUS_COLOR[c.status] ?? "#6b7280" }}>{c.status}</span>
                   </div>
-                  <p className="text-[11px] capitalize mb-2" style={{ color: "var(--text-muted)" }}>{c.platforms.join(", ")} · {c.goal}</p>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => handleToggleStatus(c)} className="btn-secondary px-3 py-1 text-xs">{c.status === "active" ? "Pause" : "Activate"}</button>
+                  <p className="text-[11px] capitalize mb-2" style={{ color: "var(--text-muted)" }}>
+                    {c.platforms.join(", ")} · {c.goal}
+                    {isLaunchedOnMeta && c.budget > 0 && ` · ₹${c.budget}/day`}
+                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button onClick={() => handleToggleStatus(c)} disabled={togglingId === c.id} className="btn-secondary px-3 py-1 text-xs disabled:opacity-50">
+                      {togglingId === c.id ? "…" : c.status === "active" ? "Pause" : "Activate"}
+                    </button>
+                    {isLaunchedOnMeta && editingBudgetId !== c.id && (
+                      <button onClick={() => handleStartEditBudget(c)} className="px-3 py-1 rounded-lg text-xs font-semibold" style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-secondary)" }}>
+                        Edit Budget
+                      </button>
+                    )}
                     {launchPlatform && c.status === "draft" && (
                       <button
                         onClick={() => handleLaunch(c, launchPlatform)}
@@ -230,6 +298,31 @@ export default function CampaignsView({ orgId, userId, initialCampaigns }: { org
                     )}
                     <button onClick={() => handleDelete(c.id)} className={isLaunchedOnMeta ? "p-1.5 rounded-lg hover:bg-white/10" : "ml-auto p-1.5 rounded-lg hover:bg-white/10"}><Trash2 size={13} style={{ color: "#f87171" }} /></button>
                   </div>
+                  {editingBudgetId === c.id && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className="text-xs" style={{ color: "var(--text-muted)" }}>₹</span>
+                      <input
+                        type="number"
+                        min={100}
+                        value={budgetInput}
+                        onChange={(e) => setBudgetInput(e.target.value)}
+                        className="w-24 px-2 py-1 rounded-lg text-xs"
+                        style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)", color: "white" }}
+                        placeholder="Daily budget"
+                      />
+                      <button
+                        onClick={() => handleSaveBudget(c.id)}
+                        disabled={savingBudget}
+                        className="px-3 py-1 rounded-lg text-xs font-semibold disabled:opacity-50"
+                        style={{ background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)", color: "#34d399" }}
+                      >
+                        {savingBudget ? "…" : "Save"}
+                      </button>
+                      <button onClick={() => setEditingBudgetId(null)} className="px-2 py-1 rounded-lg text-xs" style={{ color: "var(--text-muted)" }}>Cancel</button>
+                    </div>
+                  )}
+                  {toggleError[c.id] && <p className="text-[11px] mt-2" style={{ color: "#f87171" }}>{toggleError[c.id]}</p>}
+                  {budgetError[c.id] && <p className="text-[11px] mt-2" style={{ color: "#f87171" }}>{budgetError[c.id]}</p>}
                   {launchNotes[c.id] && (
                     <p className="text-[11px] mt-2" style={{ color: launchNotes[c.id].startsWith("Campaign created") || launchNotes[c.id].startsWith("PAUSED") ? "#34d399" : "#f87171" }}>{launchNotes[c.id]}</p>
                   )}
