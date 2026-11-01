@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, ContentPost, SocialAccount } from "@/types/database";
-import { postToFacebookPage, postToInstagram } from "@/lib/social/meta";
+import { postToFacebookPage, postToInstagram, postFacebookCarousel, postInstagramCarousel } from "@/lib/social/meta";
 import { postToLinkedIn } from "@/lib/social/linkedin";
 import { uploadYoutubeVideo, refreshGoogleToken } from "@/lib/social/google";
 
@@ -14,6 +14,7 @@ export type PublishResults = Record<string, { success: boolean; error?: string; 
 export async function publishContentPost(post: ContentPost, accounts: SocialAccount[]): Promise<PublishResults> {
   const results: PublishResults = {};
   const isVideo = post.media_type === "video";
+  const isCarousel = post.media_type === "carousel";
   const mediaUrl = post.media_urls[0];
 
   for (const platform of post.platforms) {
@@ -31,13 +32,17 @@ export async function publishContentPost(post: ContentPost, accounts: SocialAcco
 
     try {
       if (platform === "facebook") {
-        const id = isVideo
+        const id = isCarousel
+          ? await postFacebookCarousel(account.account_id, account.access_token, post.caption ?? "", post.media_urls)
+          : isVideo
           ? await postToFacebookPage(account.account_id, account.access_token, post.caption ?? "", undefined, mediaUrl)
           : await postToFacebookPage(account.account_id, account.access_token, post.caption ?? "", mediaUrl);
         results[platform] = { success: true, id };
       } else if (platform === "instagram") {
         if (!mediaUrl) throw new Error(`Instagram requires ${isVideo ? "a video" : "an image"} — this post has none`);
-        const id = await postToInstagram(account.account_id, account.access_token, mediaUrl, post.caption ?? "", isVideo ? "video" : "image");
+        const id = isCarousel
+          ? await postInstagramCarousel(account.account_id, account.access_token, post.media_urls, post.caption ?? "")
+          : await postToInstagram(account.account_id, account.access_token, mediaUrl, post.caption ?? "", isVideo ? "video" : "image");
         results[platform] = { success: true, id };
       } else if (platform === "linkedin") {
         const id = await postToLinkedIn(account.account_id, account.access_token, post.caption ?? "", mediaUrl, isVideo ? "video" : "image");

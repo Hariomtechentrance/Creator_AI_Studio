@@ -107,6 +107,69 @@ export async function postToFacebookPage(pageId: string, pageAccessToken: string
   return data.post_id ?? data.id;
 }
 
+/**
+ * A multi-photo Facebook post is two steps: upload each photo unpublished
+ * (published=false — it never appears on its own), then attach all of their
+ * fbids to one /feed post. A single /photos call can't carry more than one
+ * image, so there's no one-request version of this.
+ */
+export async function postFacebookCarousel(pageId: string, pageAccessToken: string, message: string, imageUrls: string[]): Promise<string> {
+  const mediaFbids: string[] = [];
+  for (const url of imageUrls) {
+    const body = new URLSearchParams({ url, published: "false", access_token: pageAccessToken });
+    const res = await fetch(`${GRAPH_URL}/${pageId}/photos`, { method: "POST", body });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error?.message ?? "Couldn't upload a carousel photo to Facebook");
+    mediaFbids.push(data.id);
+  }
+
+  const body = new URLSearchParams({ message, access_token: pageAccessToken });
+  mediaFbids.forEach((fbid, i) => body.append(`attached_media[${i}]`, JSON.stringify({ media_fbid: fbid })));
+  const res = await fetch(`${GRAPH_URL}/${pageId}/feed`, { method: "POST", body });
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error?.message ?? "Facebook carousel post failed");
+  return data.id;
+}
+
+/**
+ * An Instagram carousel is three steps: create each image as a child
+ * container (is_carousel_item=true, never published on its own), bundle
+ * their ids into one CAROUSEL container, then publish that container —
+ * mirroring postToInstagram's single-image flow but with a bundling step.
+ */
+export async function postInstagramCarousel(igUserId: string, pageAccessToken: string, imageUrls: string[], caption: string): Promise<string> {
+  const childIds: string[] = [];
+  for (const url of imageUrls) {
+    const body = new URLSearchParams({ image_url: url, is_carousel_item: "true", access_token: pageAccessToken });
+    const res = await fetch(`${GRAPH_URL}/${igUserId}/media`, { method: "POST", body });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error?.message ?? "Couldn't create a carousel item on Instagram");
+    childIds.push(data.id);
+  }
+
+  const containerBody = new URLSearchParams({ media_type: "CAROUSEL", caption, access_token: pageAccessToken });
+  childIds.forEach((id, i) => containerBody.append(`children[${i}]`, id));
+  const createRes = await fetch(`${GRAPH_URL}/${igUserId}/media`, { method: "POST", body: containerBody });
+  const createData = await createRes.json();
+  if (!createRes.ok || createData.error) throw new Error(createData.error?.message ?? "Couldn't create the Instagram carousel container");
+
+  const publishBody = new URLSearchParams({ creation_id: createData.id, access_token: pageAccessToken });
+  const publishRes = await fetch(`${GRAPH_URL}/${igUserId}/media_publish`, { method: "POST", body: publishBody });
+  const publishData = await publishRes.json();
+  if (!publishRes.ok || publishData.error) throw new Error(publishData.error?.message ?? "Instagram carousel publish failed");
+  return publishData.id;
+}
+
+/** Fetches a public permalink for a post/media object — used to hand back a shareable link after publishing. */
+export async function getMetaPermalink(objectId: string, accessToken: string): Promise<string | null> {
+  try {
+    const data = await metaFetch<{ permalink_url?: string }>(`${GRAPH_URL}/${objectId}?fields=permalink_url&access_token=${accessToken}`);
+    return data.permalink_url ?? null;
+  } catch {
+    return null;
+  }
+}
+
 const IG_CONTAINER_POLL_INTERVAL_MS = 5000;
 const IG_CONTAINER_POLL_TIMEOUT_MS = 4 * 60 * 1000;
 
