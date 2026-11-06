@@ -95,14 +95,22 @@ export interface Database {
           onboarding_completed: boolean;
           white_label_enabled: boolean;
           white_label_name: string | null;
+          gtm_container_id: string | null;
+          ga4_measurement_id: string | null;
+          ga4_api_secret: string | null;
+          meta_pixel_id: string | null;
           created_at: string;
           updated_at: string;
         };
-        Insert: Omit<Database["public"]["Tables"]["organizations"]["Row"], "id" | "created_at" | "updated_at" | "plan_tier" | "onboarding_completed" | "white_label_enabled" | "white_label_name"> & {
+        Insert: Omit<Database["public"]["Tables"]["organizations"]["Row"], "id" | "created_at" | "updated_at" | "plan_tier" | "onboarding_completed" | "white_label_enabled" | "white_label_name" | "gtm_container_id" | "ga4_measurement_id" | "ga4_api_secret" | "meta_pixel_id"> & {
           plan_tier?: OrgPlan;
           onboarding_completed?: boolean;
           white_label_enabled?: boolean;
           white_label_name?: string | null;
+          gtm_container_id?: string | null;
+          ga4_measurement_id?: string | null;
+          ga4_api_secret?: string | null;
+          meta_pixel_id?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["organizations"]["Insert"]>;
         Relationships: [];

@@ -1,6 +1,7 @@
 import Header from "@/components/layout/Header";
 import TeamSection from "@/components/settings/TeamSection";
 import WhiteLabelSection from "@/components/settings/WhiteLabelSection";
+import TrackingSettingsSection from "@/components/settings/TrackingSettingsSection";
 import { createClient } from "@/lib/supabase/server";
 import { getUserOrgs, getOrgMembersWithProfiles } from "@/lib/supabase/organizations";
 import type { OrgMemberWithProfile } from "@/lib/supabase/organizations";
@@ -49,6 +50,7 @@ export default async function SettingsPage() {
         ))}
 
         {team && <TeamSection orgId={team.org.id} canManage={team.canManage} members={team.members} />}
+        {team && <TrackingSettingsSection org={team.org} canManage={team.canManage} />}
         {team && <WhiteLabelSection org={team.org} canManage={team.canManage} />}
 
         <div className="card space-y-4">

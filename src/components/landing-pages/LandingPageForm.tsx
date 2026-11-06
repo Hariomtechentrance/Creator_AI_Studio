@@ -2,7 +2,20 @@
 
 import { useState } from "react";
 
-export default function LandingPageForm({ slug, pageId, variant, ctaText }: { slug: string; pageId: string; variant: "a" | "b"; ctaText: string }) {
+declare global {
+  interface Window {
+    fbq?: (...args: unknown[]) => void;
+    gtag?: (...args: unknown[]) => void;
+  }
+}
+
+/** Reads the GA4 client id from the _ga cookie (format GA1.1.XXXXXXXXXX.YYYYYYYYYY) so the server-side Lead event in /api/public/lead-capture stitches into the same GA4 session as this visitor's page view, instead of a disconnected random id. */
+function readGa4ClientId(): string | null {
+  const match = document.cookie.match(/_ga=GA\d\.\d\.(\d+\.\d+)/);
+  return match ? match[1] : null;
+}
+
+export default function LandingPageForm({ slug, pageId, variant, ctaText, trackingEnabled }: { slug: string; pageId: string; variant: "a" | "b"; ctaText: string; trackingEnabled?: boolean }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -16,7 +29,7 @@ export default function LandingPageForm({ slug, pageId, variant, ctaText }: { sl
       const res = await fetch("/api/public/lead-capture", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug, name, email, phone, pageId, variant }),
+        body: JSON.stringify({ slug, name, email, phone, pageId, variant, ga4ClientId: trackingEnabled ? readGa4ClientId() : null }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -24,6 +37,11 @@ export default function LandingPageForm({ slug, pageId, variant, ctaText }: { sl
         setMessage(data.error ?? "Something went wrong");
         return;
       }
+      // Client-side signal too (deduped against the server-side Conversions
+      // API event by Meta/GA4 on timing+identity) — belt-and-suspenders,
+      // since either side can get dropped by a blocker independently.
+      window.fbq?.("track", "Lead");
+      window.gtag?.("event", "generate_lead");
       setStatus("done");
     } catch {
       setStatus("error");
