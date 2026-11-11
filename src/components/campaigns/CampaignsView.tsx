@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Header from "@/components/layout/Header";
-import { Megaphone, Wand2, Trash2, TrendingUp, Target, DollarSign, Rocket, Eye, MousePointerClick, IndianRupee, Percent } from "lucide-react";
+import { Megaphone, Wand2, Trash2, TrendingUp, Target, DollarSign, Rocket, Eye, MousePointerClick, IndianRupee, Percent, Users, MapPin } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { createCampaignFromAdCopy, deleteCampaign } from "@/lib/supabase/campaigns";
 import type { Campaign } from "@/types/database";
@@ -32,6 +32,10 @@ export default function CampaignsView({ orgId, userId, initialCampaigns }: { org
   const [insights, setInsights] = useState<Record<string, { impressions: number; clicks: number; spend: number; ctr: number; reach: number; hasData: boolean }>>({});
   const [loadingInsights, setLoadingInsights] = useState<string | null>(null);
   const [insightsError, setInsightsError] = useState<Record<string, string>>({});
+  const [breakdowns, setBreakdowns] = useState<Record<string, { ageGender: { age: string; gender: string; clicks: number; impressions: number; reach: number }[]; region: { region: string; clicks: number; impressions: number; reach: number; spend: number }[] }>>({});
+  const [loadingBreakdownId, setLoadingBreakdownId] = useState<string | null>(null);
+  const [breakdownError, setBreakdownError] = useState<Record<string, string>>({});
+  const [openBreakdownId, setOpenBreakdownId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [toggleError, setToggleError] = useState<Record<string, string>>({});
   const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null);
@@ -190,6 +194,31 @@ export default function CampaignsView({ orgId, userId, initialCampaigns }: { org
     }
   };
 
+  const handleToggleBreakdown = async (campaignId: string) => {
+    if (openBreakdownId === campaignId) {
+      setOpenBreakdownId(null);
+      return;
+    }
+    setOpenBreakdownId(campaignId);
+    if (breakdowns[campaignId]) return;
+
+    setLoadingBreakdownId(campaignId);
+    setBreakdownError((prev) => ({ ...prev, [campaignId]: "" }));
+    try {
+      const res = await fetch(`/api/ads/insights-breakdown?campaignId=${campaignId}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setBreakdownError((prev) => ({ ...prev, [campaignId]: data.error ?? "Couldn't load the breakdown" }));
+        return;
+      }
+      setBreakdowns((prev) => ({ ...prev, [campaignId]: { ageGender: data.ageGender, region: data.region } }));
+    } catch (err) {
+      setBreakdownError((prev) => ({ ...prev, [campaignId]: err instanceof Error ? err.message : "Couldn't reach the server" }));
+    } finally {
+      setLoadingBreakdownId(null);
+    }
+  };
+
   return (
     <div>
       <Header title="Campaigns" />
@@ -296,6 +325,16 @@ export default function CampaignsView({ orgId, userId, initialCampaigns }: { org
                         {loadingInsights === c.id ? <span className="spinner w-3 h-3" /> : <><TrendingUp size={11} /> Performance</>}
                       </button>
                     )}
+                    {isLaunchedOnMeta && (
+                      <button
+                        onClick={() => handleToggleBreakdown(c.id)}
+                        disabled={loadingBreakdownId === c.id}
+                        className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold"
+                        style={{ background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.3)", color: "#60a5fa" }}
+                      >
+                        {loadingBreakdownId === c.id ? <span className="spinner w-3 h-3" /> : <><Users size={11} /> Audience</>}
+                      </button>
+                    )}
                     <button onClick={() => handleDelete(c.id)} className={isLaunchedOnMeta ? "p-1.5 rounded-lg hover:bg-white/10" : "ml-auto p-1.5 rounded-lg hover:bg-white/10"}><Trash2 size={13} style={{ color: "#f87171" }} /></button>
                   </div>
                   {editingBudgetId === c.id && (
@@ -356,6 +395,46 @@ export default function CampaignsView({ orgId, userId, initialCampaigns }: { org
                         No data yet — this campaign hasn&apos;t been activated in Meta Ads Manager, so nothing has run.
                       </p>
                     )
+                  )}
+                  {breakdownError[c.id] && <p className="text-[11px] mt-2" style={{ color: "#f87171" }}>{breakdownError[c.id]}</p>}
+                  {openBreakdownId === c.id && breakdowns[c.id] && (
+                    <div className="mt-3 pt-3 space-y-3" style={{ borderTop: "1px solid var(--border)" }}>
+                      <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+                        Who&apos;s seeing this — anonymous, aggregate only. Meta never exposes individual identity; that only comes from a lead form someone fills in themselves.
+                      </p>
+
+                      <div>
+                        <p className="text-[11px] font-semibold mb-1.5 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}><Users size={11} /> By age &amp; gender</p>
+                        {breakdowns[c.id].ageGender.filter((r) => r.impressions > 0).length === 0 ? (
+                          <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>No activity yet.</p>
+                        ) : (
+                          <div className="space-y-1">
+                            {breakdowns[c.id].ageGender.filter((r) => r.impressions > 0).sort((a, b) => b.clicks - a.clicks).map((r, i) => (
+                              <div key={i} className="flex items-center justify-between text-[11px] px-2 py-1 rounded-lg" style={{ background: "rgba(255,255,255,0.03)" }}>
+                                <span style={{ color: "var(--text-secondary)" }} className="capitalize">{r.age} · {r.gender}</span>
+                                <span style={{ color: "var(--text-muted)" }}>{r.clicks} clicks · {r.impressions.toLocaleString()} impr.</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <p className="text-[11px] font-semibold mb-1.5 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}><MapPin size={11} /> By region</p>
+                        {breakdowns[c.id].region.filter((r) => r.impressions > 0).length === 0 ? (
+                          <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>No activity yet.</p>
+                        ) : (
+                          <div className="space-y-1 max-h-48 overflow-y-auto">
+                            {breakdowns[c.id].region.filter((r) => r.impressions > 0).sort((a, b) => b.clicks - a.clicks).map((r, i) => (
+                              <div key={i} className="flex items-center justify-between text-[11px] px-2 py-1 rounded-lg" style={{ background: "rgba(255,255,255,0.03)" }}>
+                                <span style={{ color: "var(--text-secondary)" }}>{r.region}</span>
+                                <span style={{ color: "var(--text-muted)" }}>{r.clicks} clicks · ₹{r.spend.toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
               );

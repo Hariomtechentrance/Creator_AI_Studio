@@ -105,8 +105,11 @@ export async function createMetaAdSet(input: {
   goal: string;
   dailyBudgetInr: number;
   targeting: AdSetTargeting;
+  /** When a Meta Pixel is configured and firing real Lead events (see src/lib/social/metaConversions.ts), pass it so leads/sales ad sets optimize toward actual conversions instead of falling back to LINK_CLICKS. */
+  pixelId?: string | null;
 }): Promise<{ adSetId: string }> {
-  const { accessToken, adAccountId, campaignId, name, goal, dailyBudgetInr, targeting } = input;
+  const { accessToken, adAccountId, campaignId, name, goal, dailyBudgetInr, targeting, pixelId } = input;
+  const canOptimizeForConversions = !!pixelId && (goal === "leads" || goal === "sales");
 
   const geo: Record<string, unknown> = {
     location_types: ["home", "recent"],
@@ -121,6 +124,11 @@ export async function createMetaAdSet(input: {
     geo_locations: geo,
     age_min: targeting.ageMin,
     age_max: targeting.ageMax,
+    // Required as of a recent Graph API version (verified live) — Meta now
+    // rejects ad sets without an explicit Advantage+ audience choice.
+    // Disabled (0) so geo/age/gender targeting above is honored as-is,
+    // instead of Meta silently expanding the audience beyond it.
+    targeting_automation: { advantage_audience: 0 },
   };
   if (targeting.genders === "male") targetingSpec.genders = [1];
   if (targeting.genders === "female") targetingSpec.genders = [2];
@@ -130,12 +138,15 @@ export async function createMetaAdSet(input: {
     campaign_id: campaignId,
     daily_budget: String(Math.round(dailyBudgetInr * 100)), // Meta budgets are in the account currency's minor unit (paise for INR)
     billing_event: "IMPRESSIONS",
-    optimization_goal: OPTIMIZATION_GOAL[goal] ?? "LINK_CLICKS",
+    optimization_goal: canOptimizeForConversions ? "OFFSITE_CONVERSIONS" : (OPTIMIZATION_GOAL[goal] ?? "LINK_CLICKS"),
     bid_strategy: "LOWEST_COST_WITHOUT_CAP",
     targeting: JSON.stringify(targetingSpec),
     status: "PAUSED",
     access_token: accessToken,
   });
+  if (canOptimizeForConversions) {
+    body.set("promoted_object", JSON.stringify({ pixel_id: pixelId, custom_event_type: "LEAD" }));
+  }
   const res = await fetch(`${GRAPH_URL}/act_${adAccountId}/adsets`, { method: "POST", body });
   const data = await res.json();
   if (!res.ok || data.error) throw new Error(data.error?.message ?? "Couldn't create the ad set");
@@ -237,6 +248,71 @@ export async function getMetaCampaignInsights(accessToken: string, campaignId: s
     reach: Number(row.reach ?? 0),
     hasData: true,
   };
+}
+
+export interface AgeGenderBreakdownRow {
+  age: string;
+  gender: string;
+  clicks: number;
+  impressions: number;
+  reach: number;
+}
+
+export interface RegionBreakdownRow {
+  region: string;
+  clicks: number;
+  impressions: number;
+  reach: number;
+  spend: number;
+}
+
+/**
+ * Meta's Insights API never returns who clicked — no names, no identity,
+ * by design on every ad platform. This is the most granular legitimate
+ * breakdown available: age+gender buckets and region (state-level for
+ * India), the same data visible in Ads Manager's "Breakdown" dropdown.
+ */
+export async function getMetaCampaignAgeGenderBreakdown(accessToken: string, campaignId: string): Promise<AgeGenderBreakdownRow[]> {
+  const params = new URLSearchParams({
+    fields: "clicks,impressions,reach",
+    breakdowns: "age,gender",
+    access_token: accessToken,
+  });
+  const res = await fetch(`${GRAPH_URL}/${campaignId}/insights?${params.toString()}`);
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error?.message ?? "Couldn't fetch the age/gender breakdown");
+  return (data.data ?? []).map((row: { age?: string; gender?: string; clicks?: string; impressions?: string; reach?: string }) => ({
+    age: row.age ?? "Unknown",
+    gender: row.gender ?? "unknown",
+    clicks: Number(row.clicks ?? 0),
+    impressions: Number(row.impressions ?? 0),
+    reach: Number(row.reach ?? 0),
+  }));
+}
+
+/** Region breakdown paginates on Meta's side for a campaign with many active regions — this follows every page rather than silently returning a partial list. */
+export async function getMetaCampaignRegionBreakdown(accessToken: string, campaignId: string): Promise<RegionBreakdownRow[]> {
+  const rows: RegionBreakdownRow[] = [];
+  let url: string | null =
+    `${GRAPH_URL}/${campaignId}/insights?` +
+    new URLSearchParams({ fields: "clicks,impressions,reach,spend", breakdowns: "region", access_token: accessToken, limit: "200" }).toString();
+
+  while (url) {
+    const res: Response = await fetch(url);
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error?.message ?? "Couldn't fetch the region breakdown");
+    for (const row of (data.data ?? []) as Array<{ region?: string; clicks?: string; impressions?: string; reach?: string; spend?: string }>) {
+      rows.push({
+        region: row.region ?? "Unknown",
+        clicks: Number(row.clicks ?? 0),
+        impressions: Number(row.impressions ?? 0),
+        reach: Number(row.reach ?? 0),
+        spend: Number(row.spend ?? 0),
+      });
+    }
+    url = data.paging?.next ?? null;
+  }
+  return rows;
 }
 
 /**

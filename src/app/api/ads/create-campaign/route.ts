@@ -43,6 +43,8 @@ export async function POST(request: NextRequest) {
   if (!adsAccount?.access_token) return Response.json({ error: "Connect Meta (Facebook) in Social Accounts first — ads need an ads_management-scoped connection" }, { status: 400 });
   if (!pageAccount) return Response.json({ error: "Connect a Facebook Page in Social Accounts first — the ad creative needs a Page to run from" }, { status: 400 });
 
+  const { data: org } = await supabase.from("organizations").select("meta_pixel_id").eq("id", orgId).single();
+
   try {
     const adAccounts = await listMetaAdAccounts(adsAccount.access_token);
     if (adAccounts.length === 0) throw new Error("No accessible Meta ad accounts found for this login — make sure your Facebook account has an ad account set up in Business Manager");
@@ -63,6 +65,7 @@ export async function POST(request: NextRequest) {
       goal,
       dailyBudgetInr: dailyBudget,
       targeting: { cityKeys: targeting.cityKeys, ageMin: targeting.ageMin, ageMax: targeting.ageMax, genders: targeting.genders },
+      pixelId: org?.meta_pixel_id,
     });
 
     const { adId } = await createMetaAd({
