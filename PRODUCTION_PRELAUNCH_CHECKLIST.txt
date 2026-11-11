@@ -1,0 +1,426 @@
+================================================================================
+CREATORAI STUDIO — PRODUCTION PRE-LAUNCH CHECKLIST + ROADMAP
+Generated: 2026-10-29
+How to use: work top-to-bottom. PART A is BLOCKING (nothing ships until done).
+================================================================================
+
+
+================================================================================
+PART A — BLOCKING PRE-LAUNCH STEPS (from the production-readiness audit)
+================================================================================
+
+These are the code changes already made in the repo; the items below are the
+NON-CODE steps only YOU can do (they touch production infrastructure / secrets).
+
+-------------------------------------------------------------------------------
+A1. APPLY THE DATABASE MIGRATION (do this FIRST — blocks every credit/pay flow)
+-------------------------------------------------------------------------------
+Why: the new code calls Postgres functions (spend_credits, add_credits) and a
+processed_stripe_events table that do NOT yet exist on your production Supabase.
+Verified live: both return HTTP 404 (not applied).
+
+Reinforced:
+supabase/migrations/016_atomic_credits_and_webhook_ledger.sql
+
+How (pick ONE):
+  OPTION A (recommended, safest) — Supabase Dashboard:
+     Supabase -> your project (qirfojahzqagamdqjyus) -> SQL Editor -> New query
+     -> paste the ENTIRE contents of the file above -> Run.
+     It is safe to re-run (uses create-or-replace / create-if-not-exists).
+
+  OPTION B — psql (you have psql at /usr/local/bin/psql). Get the Connection
+     string from Supabase -> Settings -> Database -> "Session pooler" URI:
+        psql "postgresql://postgres.<REF>:<DB_PASSWORD>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require" \
+          -f "supabase/migrations/016_atomic_credits_and_webhook_ledger.sql"
+
+FULL SQL TO PASTE (same as the migration file) --------------------------------
+create or replace function public.spend_credits(p_user_id uuid, p_amount integer)
+returns table (success boolean, credits_after integer)
+language plpgsql security definer set search_path = public as $$
+declare bal integer;
+begin
+  if p_amount is null or p_amount <= 0 then
+    return query select true, p.credits from public.profiles p where p.id = p_user_id; return;
+  end if;
+  update public.profiles set credits = credits - p_amount
+    where id = p_user_id and credits >= p_amount returning credits into bal;
+  if bal is null then
+    return query select false, coalesce((select credits from public.profiles where id = p_user_id), 0);
+  else return query select true, bal; end if;
+end; $$;
+
+create or replace function public.add_credits(p_user_id uuid, p_amount integer)
+returns table (success boolean, credits_after integer)
+language plpgsql security definer set search_path = public as $$
+declare bal integer;
+begin
+  if p_amount is null or p_amount <= 0 then
+    return query select true, p.credits from public.profiles p where id = p_user_id; return;
+  end if;
+  update public.profiles set credits = credits + p_amount where id = p_user_id returning credits into bal;
+  return query select (bal is not null), coalesce(bal, 0);
+end; $$;
+
+revoke execute on function public.spend_credits(uuid, integer) from public, anon, authenticated;
+revoke execute on function public.add_credits(uuid, integer) from public, anon, authenticated;
+grant execute on function public.spend_credits(uuid, integer) to service_role;
+grant execute on function public.add_credits(uuid, integer) to service_role;
+
+create table if not exists public.processed_stripe_events (
+  event_id text primary key, event_type text not null,
+  processed_at timestamptz not null default now());
+alter table public.processed_stripe_events enable row level security;
+-------------------------------------------------------------------------------
+After applying, verify with (should now return HTTP 200, not 404):
+  curl -s -o /dev/null -w "%{http_code}\n" \
+    "https://qirfojahzqagamdqjyus.supabase.co/rest/v1/processed_stripe_events?select=*&limit=1" \
+    -H "apikey: <SERVICE_ROLE_KEY>" -H "Authorization: Bearer <SERVICE_ROLE_KEY>"
+
+-------------------------------------------------------------------------------
+A2. ROTATE LEAKED API KEYS (security — treat as compromised)
+-------------------------------------------------------------------------------
+Your real keys were pasted in plaintext during this session. Rotate ALL of these
+at their providers, then update .env.local:
+  [ ] Groq  [ ] Replicate  [ ] HeyGen  [ ] Hugging Face  [ ] Gemini
+  [ ] Meta App Secret  [ ] Supabase service_role key  (the most critical)
+
+-------------------------------------------------------------------------------
+A3. FILL IN PLACEHOLDER SECRETS (features are dead until set)
+-------------------------------------------------------------------------------
+In .env.local (dev) AND in your host's env (prod), replace every "your_..." with:
+  [ ] STRIPE_SECRET_KEY                (Stripe dashboard -> API keys)
+  [ ] NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY  (NOTE: browser reads NEXT_PUBLIC_... ;
+                                           render.yaml already fixed to this name)
+  [ ] STRIPE_APPRENTICE_PRICE_ID       (Stripe -> Products -> 3 recurring prices)
+  [ ] STRIPE_ARTISAN_PRICE_ID
+  [ ] STRIPE_MAESTRO_PRICE_ID
+  [ ] STRIPE_WEBHOOK_SECRET            (see A4)
+  [ ] REDIS_URL                        (Upstash free tier ok — enables real rate limit)
+  [ ] CRON_SECRET                      (any long random string — protects the cron worker)
+  [ ] TWILIO_ACCOUNT_SID / TOKEN / PHONE NUMBER  (SMS OTP login)
+  [ ] RESEND_API_KEY / FROM_EMAIL      (email notifications)
+  [ ] LINKEDIN / GOOGLE / META creds   (social posting — see PART C for Google)
+  [ ] NEXT_PUBLIC_APP_URL              (must be your real https domain in prod)
+
+Generate a strong CRON_SECRET:   openssl rand -hex 32
+
+-------------------------------------------------------------------------------
+A4. REGISTER THE STRIPE WEBHOOK (so credits actually get granted)
+-------------------------------------------------------------------------------
+Stripe Dashboard -> Developers -> Webhooks -> Add endpoint:
+  URL:    https://YOUR_DOMAIN/api/webhooks/stripe
+  Events: checkout.session.completed
+          customer.subscription.deleted
+          invoice.payment_failed
+Then copy the "whsec_..." signing secret into STRIPE_WEBHOOK_SECRET.
+Test locally with Stripe CLI:  stripe listen --forward-to localhost:3000/api/webhooks/stripe
+
+-------------------------------------------------------------------------------
+A5. DEPLOY TARGET — set env vars + confirm cron (pick ONE host)
+-------------------------------------------------------------------------------
+Vercel (recommended — cron is automatic via vercel.json):
+  [ ] Set ALL env vars in Vercel project settings (esp. CRON_SECRET + NEXT_PUBLIC_APP_URL)
+  [ ] vercel.json already fires /api/social/publish-scheduled every 5 min. Vercel
+      sends "Authorization: Bearer $CRON_SECRET" automatically. Nothing else needed.
+
+Render (cron service already added to render.yaml):
+  [ ] Set env vars in render.yaml / dashboard
+  [ ] Also set CRON_SECRET + NEXT_PUBLIC_APP_URL ON THE CRON SERVICE (it curls the app)
+
+VPS / Ubuntu / PM2 / Docker:
+  [ ] Add a real cron entry (cron does NOT read your app env — inline the secret):
+        crontab -e  ->
+        */5 * * * * curl -fsS -H "x-cron-secret: YOUR_CRON_SECRET" https://YOUR_DOMAIN/api/social/publish-scheduled >> /var/log/creatorai-cron.log 2>&1
+  [ ] Docker: run cron on the HOST or a separate scheduler, not inside the app image.
+
+-------------------------------------------------------------------------------
+A6. CLEANUP (optional, safe — these are untracked macOS " copy" artifacts)
+-------------------------------------------------------------------------------
+Review, then delete (unrecoverable — they are NOT in git):
+  find . -name "* 2.*" -not -path "./node_modules/*" -not -path "./.next/*"
+  # e.g. "next.config 2.mjs", "route 2.ts", "image 2.ts", "Dockerfile 2", etc.
+
+-------------------------------------------------------------------------------
+A7. FINAL GATE — run the full CI check
+-------------------------------------------------------------------------------
+  npm run ci:checks      # lint + build + e2e (Playwright) + npm audit
+
+
+================================================================================
+PART B — MANUAL QA ON STAGING (can't be automated while keys are placeholders)
+================================================================================
+  [ ] Signup -> email confirm -> login -> logout (all 3 methods: password, Google, OTP)
+  [ ] Protected route: logged-out visit to /dashboard redirects to /auth/login
+  [ ] RLS cross-user: as User A, try to read/update User B rows via REST -> must fail
+  [ ] Generate 1 image -> confirm credits deducted EXACTLY once
+  [ ] Double-spend: two parallel generations with balance for only one -> one 402, no negative
+  [ ] Buy credit pack (Stripe TEST mode) -> balance increases + ONE credit_transactions row
+      even if webhook is redelivered (idempotency works)
+  [ ] Upgrade to a plan -> credits granted once; cancel -> plan back to free
+  [ ] Connect a social account -> publish now -> status flips to published/failed
+  [ ] Schedule a post 2 minutes out -> confirm it AUTO-publishes (cron worker fires)
+  [ ] Health: https://YOUR_DOMAIN/api/health returns {"status":"ok"}
+
+
+================================================================================
+PART C — GOOGLE BUSINESS PROFILE (GMB) + LOCAL SEO
+================================================================================
+STATUS TODAY: FIRST SLICE BUILT (code) — build + lint green. NOT yet connected
+live because it needs the Google Cloud API enabled + OAuth verification (see C7).
+BUILT (files in repo):
+  src/lib/social/googleBusinessProfile.ts   OAuth URL + v4 API client
+        (list locations, read reviews, post owner reply, media/attr counts)
+  src/lib/social/gbpServerContext.ts        RLS-gated session + token refresh
+  src/lib/seo/gbpScore.ts                   21-factor scorer + website audit
+  src/app/api/social/connect/gbp            one-click OAuth (mirror of /google)
+  src/app/api/social/callback/gbp           exchange code, store one row/location
+  src/app/api/gbp/reviews                   list reviews + unanswered count
+  src/app/api/gbp/reviews/reply             one-click merchant reply
+  src/app/api/gbp/score                     GET optimization %
+  src/components/social-accounts/GbpPanel   dashboard card (meter + reply UI)
+  platform value used in social_accounts: "google_business" (plain text col,
+        no CHECK constraint, so inserts work with no migration).
+STILL TO BUILD (slice 2): services, photo upload, short-video upload, local posts.
+
+C1. WHAT GOOGLE'S APIs ACTUALLY ALLOW (the features you listed) -------------
+  - Reply to EACH review .................. Business Profile Reviews API
+        (read reviews + post/ update the owner "merchant reply")  YES, supported
+  - Add / edit services & categories ...... Business Profile Management API
+        (primary/secondary categories, services, attributes, hours) YES
+  - Update photos ......................... Media API (photo categories:
+        EXTERIOR/INTERIOR/PRODUCT/TEAM/etc.) YES
+  - Short videos on the profile ........... Media API supports owner VIDEO uploads;
+        Local Posts can attach a mediaUrl (Event/Offer/Update) YES
+  - Google Posts (updates/offers/events) .. Business Profile Local Posts API YES
+  - Read profile analytics (calls,
+        directions, searches, views) ....... Business Profile Performance API YES
+
+C2. THE "~21 FACTORS" THAT DRIVE THE LOCAL "near me" PACK -------------------
+Google ranks the local 3-pack / map results mainly on RELEVANCE, DISTANCE,
+PROMINENCE. You cannot *force* a ranking; you can only optimize the controllable
+signals below and measure them. These are the checklist our scorer will grade:
+
+  PROFILE COMPLETENESS
+   1. Verified listing + exact, consistent NAP (Name/Address/Phone)
+   2. Correct PRIMARY category (single biggest ranking lever)
+   3. Relevant SECONDARY categories
+   4. Clean business name (NO keyword stuffing -> can get suspended)
+   5. Full description with natural keywords
+   6. Services AND/OR products added (menu/services)
+   7. Attributes ticked (accessibility, payments, "online appointments", etc.)
+   8. Accurate standard hours + special (holiday) hours
+   9. Correct map pin / service areas
+  CONTENT & ENGAGEMENT
+  10. Photo count + quality (exterior, interior, team, product)
+  11. Photo RECENCY (fresh uploads help)
+  12. Videos present
+  13. Google Posts cadence (regular updates/offers/events)
+  14. Website link (+ booking/appointment URL with UTM tracking)
+  15. Phone + chat/messaging enabled
+  16. Q&A section populated with owner answers
+  REVIEW SIGNALS
+  17. Number of reviews (volume)
+  18. Average star rating
+  19. Review RECENCY / velocity
+  20. Owner reply RATE (every review answered?)
+  21. Owner reply TIME (responded quickly?) + keyword-rich, varied replies
+  OFF-PROFILE (measured, not directly editable via API)
+  +  Citations/NAP consistency across directories
+  +  On-page + technical SEO of the linked WEBSITE (see C3)
+  +  Backlinks / prominence, proximity to searcher
+
+  For "hotel near me" / "optical near me": the map 3-pack comes first (factors
+  1-21 above), then 7 organic web results ranked by normal website SEO. So a
+  complete GBP + an SEO-healthy website together win the page.
+
+C3. HOW WE WOULD COMPUTE THE "OPTIMIZATION %" (SEO SCORE) -------------------
+No single Google API returns a "score". We build our own heuristic scorer that:
+  a. Pulls the profile via the GBP APIs -> checks each of the 21 factors
+  b. Audits the linked WEBSITE (server fetch + parse) for:
+       - <title> length (50-60), meta description (120-160), single H1
+       - image alt text, canonical tag, mobile viewport, HTTPS
+       - sitemap.xml + robots.txt present
+       - LocalBusiness / Hotel / Optical schema.org structured data (JSON-LD)
+       - Local landing page (NAP shown, embedded map, area-service copy)
+  c. Optionally calls Google PageSpeed Insights / Lighthouse API for the
+     Performance + SEO sub-scores (0-100 each).
+  Weight the factors -> output a 0-100% "Profile Optimization" score + a ranked
+  to-do list ("you have 3 photos, need 10+", "reply to 12 unanswered reviews",
+  "missing LocalBusiness schema", etc.).
+
+C4. HARD CONSTRAINTS YOU MUST KNOW (be honest before you build) -------------
+  - Google Cloud project with these APIs ENABLED + OAuth consent screen.
+  - Business-management scopes are RESTRICTED: they require Google verification
+    / an annual security assessment before production use (limited-scope app
+    works only for your own logged-in accounts until approved).
+  - Google has been migrating legacy "Google My Business v4" endpoints to the
+    new "Business Profile Platform" (businessprofilemanagement / mybusiness-
+    reviews / localposts). Wire to the CURRENT endpoints, not deprecated ones.
+  - We can OPTIMIZE signals + REPLY + POST + upload media + SCORE. We CANNOT
+    guarantee a top-10/"near me" ranking, and cannot read proximity to the
+    searcher (depends on where each user searches from).
+  - Rate limits + review-reply length rules (Google caps reply text; no keyword
+    spam) must be respected to avoid suspensions.
+
+C5. PROPOSED BUILD PLAN IN THIS REPO (files to add) -------------------------
+  src/lib/social/googleBusinessProfile.ts   OAuth scopes, list accounts/locations,
+        reply to review, create local post, upload photo/video, get services/attrs
+  src/app/api/social/callback/gbp/...       OAuth redirect + store tokens
+  src/app/api/gbp/reviews/route.ts          list + reply
+  src/app/api/gbp/posts/route.ts            create Local Post (update/offer/event)
+  src/app/api/gbp/media/route.ts            photo / video upload
+  src/app/api/gbp/services/route.ts         read/write services + attributes
+  src/lib/seo/audit.ts + /api/seo/score     the 21-factor + website scorer
+  DB: new platform "google_business_profile" in social_accounts; a
+      gbp_locations table (location_id, primary_category, rating, review_count);
+      optional seo_scores table to track score over time.
+  UI: a "Google Business Profile" dashboard card + an "SEO Score" meter with
+      the ranked recommendations.
+
+C6. RECOMMENDED FIRST SLICE (smallest useful, lowest-risk) ------------------
+  1) Connect GBP (OAuth) + list locations.            [DONE]
+  2) Pull reviews -> "Reply to all unanswered".        [DONE]
+  3) The 21-factor SEO SCORER (read-only) -> % + list. [DONE]
+  Post/reply/photo-video creation + website audit can follow in slice 2.
+
+C7. PENDING API / KEY / SECRET WORK FOR GBP (only YOU can do these) ---------
+GBP REUSES the existing Google creds already in .env.local — NO new key if you
+have connected YouTube / Google Ads before:
+  [ ] GOOGLE_CLIENT_ID
+  [ ] GOOGLE_CLIENT_SECRET
+
+In Google Cloud Console (SAME project as the above OAuth client):
+  [ ] Enable API "Google Business Profile API" (mybusiness.googleapis.com)
+  [ ] Add Authorized redirect URI:
+         https://<your-domain>/api/social/callback/gbp
+         http://localhost:3000/api/social/callback/gbp   (for local testing)
+  [ ] OAuth consent screen: add scope business.manage; add your own Google
+         account as a TEST USER so you can connect before verification.
+  [ ] SUBMIT business.manage for GOOGLE VERIFICATION before real customers can
+         connect — it is a RESTRICTED scope (annual security assessment).
+         Until approved, only test users can connect.
+
+NOTE: business.manage needs prompt=consent + access_type=offline (already set in
+getGbpAuthUrl). Review replies + media writes respect Google length/rate rules.
+
+================================================================================
+PART D — FULL AUDIT RESULTS (run 2026-10-29)
+================================================================================
+PASSED GREEN:
+  [x] TypeScript typecheck (tsc --noEmit) — 0 errors
+  [x] ESLint — 0 errors (2 harmless warnings from the untracked junk file
+      "next.config 2.mjs" anonymous default export; see A6 cleanup)
+  [x] Production build (next build) — compiled, all GBP routes registered
+  [x] Playwright E2E — 4/4 passed (login, signup, forgot-password, /api/health)
+  [x] publish-scheduled cron worker — fails CLOSED (401) when CRON_SECRET unset;
+      optimistic row claim prevents overlapping double-publish. OK.
+  [x] GBP callback upsert — verified social_accounts has unique(org_id,platform,
+      account_id) (002_growth_os.sql), so onConflict is valid. OK.
+  [x] GBP reads go through the user's RLS client (org gate). OK.
+
+BUG FIXED THIS PASS:
+  src/lib/social/gbpServerContext.ts — refreshGoogleToken() THROWS on an
+  expired/revoked refresh token; the call was unguarded so a stale Google
+  session surfaced as an unhandled 500 in /api/gbp/reviews, /reply and /score.
+  Now wrapped -> returns a clean 401 "Google session expired — reconnect".
+
+DEPENDENCY SECURITY (npm audit):
+  npm audit fix (SAFE, applied) cleared 10 of 12 vulns (axios, browserslist,
+  joi, nanoid, source-map-js, zod, brace-expansion, follow-redirects, js-yaml —
+  all transitive; package.json direct deps UNCHANGED, only package-lock.json).
+  REMAINING 2 — need an explicit decision because the only fix is a forced bump:
+    [ ] next   (CRITICAL RCE advisory, covers <=16.4.0; app pinned 16.2.12)
+    [ ] sharp  (HIGH, libheif/librsvg) — pulled in by next
+  Fix = `npm audit fix --force` -> installs next@16.4.3 + newer sharp. This is
+  OUTSIDE the pinned range and AGENTS.md flags this Next as breaking-change-prone,
+  so DO IT DELIBERATELY: run it, then re-run `npm run build && npm run ci:checks`
+  before shipping. Recommendation: yes, upgrade (RCE in Image Optimization is
+  serious), but test the build after. Backup of pre-fix package files not needed
+  (git/lock is the rollback).
+
+STILL HUMAN-ONLY (unchanged blockers): A1 apply migration 016, A2 rotate keys,
+A3 fill secrets, A4 Stripe webhook, A5 deploy env+cron, C7 Google Cloud GBP API.
+
+================================================================================
+PART E — AI PRODUCT REEL ("WHATSAPP-STYLE" TALKING-AVATAR VIDEO) — PENDING WORK
+================================================================================
+REFERENCE: "WhatsApp Video 2026-08-23 at 3.02.36 pm.mp4" (analysed by extracting
+12 frames with the bundled ffmpeg + reading them).
+WHAT IT IS: a 44s VERTICAL (9:16, 478x850, 30fps, AAC audio) AI-avatar business
+promo for "Himnova Technologies" (@HIMNOVATECH, Kathmandu). One consistent
+AI-generated female spokesperson in a navy blazer LIP-SYNCING to camera the whole
+time, with animated effects composited around her, ending on a contact card.
+  0-12s  avatar talking in an office, pointing at camera
+  ~16s   flying papers/documents VFX overlay
+  ~24s   holographic floating "ERP dashboard" HUD (charts, "60fps", analytics)
+  ~28s   same avatar, SERVER-ROOM background + neon rim-glow outline
+  ~36s   glass CONTACT CARD: logo, website, email, location
+  ~43s   END CARD: IG logo, WhatsApp/Call, phone numbers, location (fade out)
+FORMULA = AI talking avatar + voice + lip-sync + animated VFX overlays + branded
+contact end-card, all vertical.
+
+E1. ALREADY BUILT IN THIS REPO (the hard ~70%) --------------------------------
+  [x] Avatar + lip-sync + voice (incl. animate an UPLOADED FACE, no training)
+        src/lib/ai/heygen.ts  (generateAvatarVideo, uploadImageAsset,
+        generateSceneVideoFromImage)  -> needs HEYGEN_API_KEY
+  [x] Face registration  /api/video-pipeline/register-face
+  [x] Presenter + b-roll scene script  src/lib/ai/sceneScript.ts, productReelScript.ts
+  [x] Scene render (HeyGen)  /api/video-pipeline/render-presenter-scene
+  [x] Captions + crossfade + stitch to MP4  /api/video-pipeline/stitch (ffmpeg)
+  [x] Product photo -> motion  /api/generate-video (Kling v4 via Replicate, start_image)
+  [x] Script/copy LLM  Groq + Claude
+
+E2. GAPS TO CLOSE FOR THE HIMNOVA LOOK (the VFX polish layer) -----------------
+  [ ] 1. BACKGROUND/SCENE SWAP behind the same avatar (office -> server room).
+         HeyGen supports it; generateAvatarVideo doesn't expose a background/scene
+         param yet. Add the param + pass through.
+  [ ] 2. VFX OVERLAY LAYER — holographic HUD, floating elements, neon rim-glow.
+         NOT one API call. Recommended = a library of TRANSPARENT overlay assets
+         (PNG-sequence / WebM-with-alpha) composited with the SAME ffmpeg overlay
+         filter already used for captions. (Alt: Runway/Pika/Veo-3 effects —
+         unpredictable, can't reliably render a clean UI dashboard.)
+  [ ] 3. BRANDED CONTACT END-CARD — render a glass-style card PNG from the
+         Brand Profile (logo, website, email, phone, location) and append as the
+         last 3-4s clip via the existing stitch step.
+  [ ] 4. PRODUCT PHOTO -> REAL MOTION: route product-reel 'featuresProduct' scenes
+         through /api/generate-video (Kling start_image) instead of Ken Burns.
+  [ ] 5. UNIFIED ORCHESTRATOR + UI: one "Product Reel Studio" — prompt + product
+         photos + optional selfie -> finished reel in ONE click. Today presenter
+         (video-pipeline) and product (product-reel) are two SEPARATE flows.
+  [ ] 6. (optional) PREMIUM / CLONED VOICE -> ElevenLabs (HEYGEN voices are ok).
+
+E3. API KEYS REQUIRED ---------------------------------------------------------
+  CORE (code already written — just fill .env.local):
+    [ ] HEYGEN_API_KEY       avatar + lip-sync + voice  (the core of the video)
+    [ ] REPLICATE_API_TOKEN  Kling v4 product-photo + b-roll motion
+    [ ] GROQ_API_KEY         ad script / hooks
+  OPTIONAL UPGRADES (each needs a small integration first):
+    [ ] ELEVENLABS_API_KEY   better TTS + voice cloning
+    [ ] SUNO / music         background music bed
+    [ ] Veo 3 (Google Cloud) / Runway  more cinematic motion
+  NOTE: RUNWAY_API_KEY / LUMA_API_KEY / PIAPI_API_KEY are PLACEHOLDERS with NO
+  integration in this repo. Only Kling-via-Replicate actually works for
+  image-to-video today.
+
+E4. "TRAIN OUR MODEL" — CLARIFICATION (do NOT over-engineer) ------------------
+  You do NOT train a video model per user/per video.
+  - Consistent branded presenter -> HeyGen animates one uploaded face instantly
+    (register-face already does this). No training.
+  - Custom AI face/product LOOK -> the only real training path is image-model
+    fine-tune (DreamBooth/LoRA) via /api/train-model + lib/replicate/training.ts.
+    Use sparingly (slow, compute cost).
+  - "Trending" content = prompt engineering (hook templates + Brand Profile voice
+    + contentCategories), NOT model training. The LLM already handles it.
+
+E5. PROPOSED BUILD PLAN (files to add/change) ---------------------------------
+  src/lib/ai/heygen.ts            + background/scene param on generateAvatarVideo
+  src/lib/video/overlay.ts        ffmpeg overlay of transparent VFX assets
+  src/lib/video/contactCard.ts    render Brand-Profile glass card -> PNG
+  src/app/api/product-reel/generate/   unified orchestrator (script->render->
+                                  overlay->endcard->stitch), meter credits ONCE
+  src/components/product-reel/    "Product Reel Studio" single-screen UI
+  assets/reel-overlays/           transparent HUD/glow/floating-element library
+
+================================================================================
+END OF FILE
+================================================================================

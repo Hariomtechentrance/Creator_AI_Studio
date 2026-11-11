@@ -32,6 +32,7 @@ export default function AddLeadDialog({ open, onOpenChange, orgId, onCreated }: 
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [company, setCompany] = useState("");
+  const [city, setCity] = useState("");
   const [source, setSource] = useState<LeadSource>("manual");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -41,6 +42,7 @@ export default function AddLeadDialog({ open, onOpenChange, orgId, onCreated }: 
     setEmail("");
     setPhone("");
     setCompany("");
+    setCity("");
     setSource("manual");
     setError("");
   };
@@ -61,6 +63,7 @@ export default function AddLeadDialog({ open, onOpenChange, orgId, onCreated }: 
         email: email.trim() || null,
         phone: phone.trim() || null,
         company: company.trim() || null,
+        location: city.trim() || null,
         source,
       });
 
@@ -106,6 +109,7 @@ export default function AddLeadDialog({ open, onOpenChange, orgId, onCreated }: 
             <input className="input w-full" placeholder="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
             <input className="input w-full" placeholder="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
             <input className="input w-full" placeholder="Company (optional)" value={company} onChange={(e) => setCompany(e.target.value)} />
+            <input className="input w-full" placeholder="City (optional)" value={city} onChange={(e) => setCity(e.target.value)} />
 
             <Select.Root value={source} onValueChange={(v) => setSource(v as LeadSource)}>
               <Select.Trigger

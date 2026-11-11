@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { spendCredits } from "@/lib/credits";
 import { getBrandProfile } from "@/lib/supabase/brand";
 import { generateSceneScript } from "@/lib/ai/sceneScript";
 import { isAnthropicConfigured } from "@/lib/ai/anthropic";
@@ -16,7 +17,7 @@ function isSupabaseConfigured(): boolean {
 
 export async function POST(request: NextRequest) {
   if (!isAnthropicConfigured()) {
-    return Response.json({ error: "Scene script generation needs GEMINI_API_KEY configured in .env.local" }, { status: 400 });
+    return Response.json({ error: "Scene script generation needs GROQ_API_KEY configured in .env.local" }, { status: 400 });
   }
 
   let body: { topic?: string; orgId?: string; numScenes?: number; categoryId?: string };
@@ -66,7 +67,9 @@ export async function POST(request: NextRequest) {
 
     if (authEnabled && userId) {
       const admin = createAdminClient();
-      await admin.from("profiles").update({ credits: creditsBefore - COST }).eq("id", userId);
+      if (!(await spendCredits(admin, userId, COST))) {
+        return Response.json({ error: "Not enough credits — top up to continue" }, { status: 402 });
+      }
       await admin.from("generations").insert({
         user_id: userId,
         type: "scene_script",

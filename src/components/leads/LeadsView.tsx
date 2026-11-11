@@ -4,11 +4,11 @@ import { useRef, useState } from "react";
 import Header from "@/components/layout/Header";
 import * as Select from "@radix-ui/react-select";
 import {
-  Users, Plus, Search, Upload, Star, Phone, Mail, Building2, ChevronDown, Check,
+  Users, Plus, Search, Upload, Star, Phone, Mail, Building2, MapPin, ChevronDown, Check,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { createLead, updateLeadStatus } from "@/lib/supabase/leads";
-import { parseLeadsCsv } from "@/lib/leads/csv";
+import { mapCsvRowToLead, parseLeadsCsv, readCsvFile } from "@/lib/leads/csv";
 import { DISPLAY_STATUSES, STATUS_META } from "@/lib/leads/status";
 import AddLeadDialog from "@/components/leads/AddLeadDialog";
 import LeadDetailDialog from "@/components/leads/LeadDetailDialog";
@@ -84,7 +84,7 @@ export default function LeadsView({ orgId, userId, initialLeads, members }: Lead
 
   const filtered = leads.filter((l) => {
     const q = search.toLowerCase();
-    const matchSearch = !q || (l.name ?? "").toLowerCase().includes(q) || (l.email ?? "").toLowerCase().includes(q);
+    const matchSearch = !q || [l.name, l.email, l.phone, l.location, l.company].some((v) => (v ?? "").toLowerCase().includes(q));
     const matchStatus = filterStatus === "all" || l.status === filterStatus;
     return matchSearch && matchStatus;
   });
@@ -108,20 +108,17 @@ export default function LeadsView({ orgId, userId, initialLeads, members }: Lead
     setImportError(null);
 
     try {
-      const text = await file.text();
+      const text = await readCsvFile(file);
       const rows = parseLeadsCsv(text);
       const supabase = createClient();
       let imported = 0;
       let skipped = 0;
 
       for (const row of rows) {
-        const name = row.name || row["full name"] || null;
-        const email = row.email || null;
-        const phone = row.phone || row["phone number"] || null;
-        const company = row.company || null;
+        const { name, email, phone, company, location, source, customFields } = mapCsvRowToLead(row);
         if (!email && !phone) { skipped++; continue; }
 
-        const { lead, duplicate } = await createLead(supabase, orgId, { name, email, phone, company, source: "csv" });
+        const { lead, duplicate } = await createLead(supabase, orgId, { name, email, phone, company, location, source, customFields });
         if (duplicate || !lead) {
           skipped++;
         } else {
@@ -151,7 +148,7 @@ export default function LeadsView({ orgId, userId, initialLeads, members }: Lead
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--text-muted)" }} />
             <input
               className="input w-full pl-9 text-sm"
-              placeholder="Search leads by name, email…"
+              placeholder="Search leads by name, phone, city…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -160,7 +157,7 @@ export default function LeadsView({ orgId, userId, initialLeads, members }: Lead
             <input
               ref={fileInputRef}
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,.tsv,text/csv,text/tab-separated-values"
               className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportCsv(f); }}
             />
@@ -270,6 +267,11 @@ export default function LeadsView({ orgId, userId, initialLeads, members }: Lead
                       {lead.phone && (
                         <div className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
                           <Phone size={10} /> {lead.phone}
+                        </div>
+                      )}
+                      {lead.location && (
+                        <div className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
+                          <MapPin size={10} /> {lead.location}
                         </div>
                       )}
                     </div>

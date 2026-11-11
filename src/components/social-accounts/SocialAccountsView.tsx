@@ -3,10 +3,11 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import Header from "@/components/layout/Header";
-import { Camera, Briefcase, ThumbsUp, PlaySquare, X as Twitter, Music2, Share2, CheckCircle2, Target, MessageCircle, X } from "lucide-react";
+import { Camera, Briefcase, ThumbsUp, PlaySquare, X as Twitter, Music2, Share2, CheckCircle2, Target, MessageCircle, X, MapPin } from "lucide-react";
 import type { SocialAccount, SocialPlatform } from "@/types/database";
+import GbpPanel from "./GbpPanel";
 
-const PLATFORMS: { id: SocialPlatform; label: string; icon: React.ReactNode; color: string; connectVia: "meta" | "linkedin" | "google" | "whatsapp" | null }[] = [
+const PLATFORMS: { id: SocialPlatform; label: string; icon: React.ReactNode; color: string; connectVia: "meta" | "linkedin" | "google" | "whatsapp" | "gbp" | null }[] = [
   { id: "instagram", label: "Instagram", icon: <Camera size={20} />, color: "#e1306c", connectVia: "meta" },
   { id: "facebook", label: "Facebook", icon: <ThumbsUp size={20} />, color: "#1877f2", connectVia: "meta" },
   { id: "linkedin", label: "LinkedIn", icon: <Briefcase size={20} />, color: "#0077b5", connectVia: "linkedin" },
@@ -15,11 +16,13 @@ const PLATFORMS: { id: SocialPlatform; label: string; icon: React.ReactNode; col
   { id: "youtube", label: "YouTube Shorts", icon: <PlaySquare size={20} />, color: "#ff0000", connectVia: "google" },
   { id: "tiktok", label: "TikTok", icon: <Music2 size={20} />, color: "#25f4ee", connectVia: null },
   { id: "google_ads", label: "Google Ads", icon: <Target size={20} />, color: "#4285f4", connectVia: "google" },
+  { id: "google_business", label: "Google Business Profile", icon: <MapPin size={20} />, color: "#34a853", connectVia: "gbp" },
 ];
 
 export default function SocialAccountsView({ orgId, initialAccounts, connected, error }: { orgId: string | null; initialAccounts: SocialAccount[]; connected: string | null; error: string | null }) {
   const [accounts, setAccounts] = useState(initialAccounts);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
+  const [settingDefault, setSettingDefault] = useState<string | null>(null);
   const [whatsappOpen, setWhatsappOpen] = useState(false);
 
   const handleDisconnect = async (accountId: string) => {
@@ -33,6 +36,22 @@ export default function SocialAccountsView({ orgId, initialAccounts, connected, 
       if (res.ok) setAccounts((prev) => prev.filter((a) => a.id !== accountId));
     } finally {
       setDisconnecting(null);
+    }
+  };
+
+  const handleSetDefault = async (account: SocialAccount) => {
+    setSettingDefault(account.id);
+    try {
+      const res = await fetch("/api/social/set-default", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: account.id }),
+      });
+      if (res.ok) {
+        setAccounts((prev) => prev.map((a) => (a.platform === account.platform ? { ...a, is_default: a.id === account.id } : a)));
+      }
+    } finally {
+      setSettingDefault(null);
     }
   };
 
@@ -89,10 +108,24 @@ export default function SocialAccountsView({ orgId, initialAccounts, connected, 
                 </div>
                 {connectedAccounts.map((a) => (
                   <div key={a.id} className="flex items-center justify-between mt-2 pl-13 text-xs" style={{ color: "var(--text-muted)" }}>
-                    <span>{a.account_name || a.account_username}</span>
-                    <button onClick={() => handleDisconnect(a.id)} disabled={disconnecting === a.id} className="hover:text-red-400">
-                      {disconnecting === a.id ? "…" : "Disconnect"}
-                    </button>
+                    <span className="flex items-center gap-1.5">
+                      {a.account_name || a.account_username}
+                      {a.is_default && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(16,185,129,0.15)", color: "#34d399" }}>
+                          DEFAULT
+                        </span>
+                      )}
+                    </span>
+                    <span className="flex items-center gap-2.5">
+                      {connectedAccounts.length > 1 && !a.is_default && (
+                        <button onClick={() => handleSetDefault(a)} disabled={settingDefault === a.id} className="hover:text-violet-400">
+                          {settingDefault === a.id ? "…" : "Set default"}
+                        </button>
+                      )}
+                      <button onClick={() => handleDisconnect(a.id)} disabled={disconnecting === a.id} className="hover:text-red-400">
+                        {disconnecting === a.id ? "…" : "Disconnect"}
+                      </button>
+                    </span>
                   </div>
                 ))}
               </div>
@@ -100,6 +133,8 @@ export default function SocialAccountsView({ orgId, initialAccounts, connected, 
           })}
         </div>
       </div>
+
+      <GbpPanel accounts={accounts} />
 
       {orgId && (
         <WhatsAppConnectDialog
@@ -148,6 +183,7 @@ function WhatsAppConnectDialog({ orgId, open, onOpenChange, onConnected }: { org
         token_expires_at: null,
         scopes: [],
         is_active: true,
+        is_default: true,
         last_synced_at: new Date().toISOString(),
         follower_count: 0,
         following_count: 0,

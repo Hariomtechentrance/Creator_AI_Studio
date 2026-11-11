@@ -29,7 +29,7 @@ export interface Database {
         Row: {
           id: string;
           user_id: string;
-          type: "image" | "video" | "upscale" | "texture" | "avatar_video" | "scene_script" | "custom_avatar" | "video_stitch";
+          type: "image" | "video" | "upscale" | "texture" | "avatar_video" | "scene_script" | "custom_avatar" | "video_stitch" | "content";
           prompt: string;
           model: string;
           status: "pending" | "processing" | "completed" | "failed";
@@ -71,6 +71,16 @@ export interface Database {
         Update: never;
         Relationships: [];
       };
+      processed_stripe_events: {
+        Row: {
+          event_id: string;
+          event_type: string;
+          processed_at: string;
+        };
+        Insert: { event_id: string; event_type: string; processed_at?: string };
+        Update: never;
+        Relationships: [];
+      };
       organizations: {
         Row: {
           id: string;
@@ -85,14 +95,22 @@ export interface Database {
           onboarding_completed: boolean;
           white_label_enabled: boolean;
           white_label_name: string | null;
+          gtm_container_id: string | null;
+          ga4_measurement_id: string | null;
+          ga4_api_secret: string | null;
+          meta_pixel_id: string | null;
           created_at: string;
           updated_at: string;
         };
-        Insert: Omit<Database["public"]["Tables"]["organizations"]["Row"], "id" | "created_at" | "updated_at" | "plan_tier" | "onboarding_completed" | "white_label_enabled" | "white_label_name"> & {
+        Insert: Omit<Database["public"]["Tables"]["organizations"]["Row"], "id" | "created_at" | "updated_at" | "plan_tier" | "onboarding_completed" | "white_label_enabled" | "white_label_name" | "gtm_container_id" | "ga4_measurement_id" | "ga4_api_secret" | "meta_pixel_id"> & {
           plan_tier?: OrgPlan;
           onboarding_completed?: boolean;
           white_label_enabled?: boolean;
           white_label_name?: string | null;
+          gtm_container_id?: string | null;
+          ga4_measurement_id?: string | null;
+          ga4_api_secret?: string | null;
+          meta_pixel_id?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["organizations"]["Insert"]>;
         Relationships: [];
@@ -489,9 +507,10 @@ export interface Database {
           follower_count: number;
           following_count: number;
           post_count: number;
+          is_default: boolean;
           created_at: string;
         };
-        Insert: Omit<Database["public"]["Tables"]["social_accounts"]["Row"], "id" | "created_at">;
+        Insert: Omit<Database["public"]["Tables"]["social_accounts"]["Row"], "id" | "created_at" | "is_default"> & { is_default?: boolean };
         Update: Partial<Database["public"]["Tables"]["social_accounts"]["Insert"]>;
         Relationships: [];
       };
@@ -505,6 +524,14 @@ export interface Database {
       increment_ab_stat: {
         Args: { p_page_id: string; p_variant: "a" | "b"; p_kind: "views" | "conversions" };
         Returns: undefined;
+      };
+      spend_credits: {
+        Args: { p_user_id: string; p_amount: number };
+        Returns: { success: boolean; credits_after: number }[];
+      };
+      add_credits: {
+        Args: { p_user_id: string; p_amount: number };
+        Returns: { success: boolean; credits_after: number }[];
       };
     };
   };
@@ -564,7 +591,7 @@ export interface TargetAudience {
 
 // ─── Social Accounts ──────────────────────────────────────────────────────────
 
-export type SocialPlatform = "instagram" | "facebook" | "linkedin" | "twitter" | "youtube" | "tiktok" | "google_ads" | "whatsapp";
+export type SocialPlatform = "instagram" | "facebook" | "linkedin" | "twitter" | "youtube" | "tiktok" | "google_ads" | "google_business" | "whatsapp" | "meta_ads";
 
 // ─── Content / Publishing ─────────────────────────────────────────────────────
 

@@ -1,21 +1,12 @@
 import Replicate from "replicate";
 import { Client } from "@gradio/client";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { writeFile, readFile, unlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-
-const execFileAsync = promisify(execFile);
-
-// ffmpeg-static computes its binary path from `__dirname`, which Turbopack
-// rewrites to a bogus placeholder when bundling server routes — resolve it
-// from process.cwd() instead, which Next.js always sets to the project root.
-const ffmpegPath = join(process.cwd(), "node_modules", "ffmpeg-static", process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+import { spendCredits } from "@/lib/credits";
+import { generateWithKenBurns } from "@/lib/video/kenBurns";
+import { generateKlingVideoViaPiapi, isPiapiConfigured } from "@/lib/piapi/kling";
+import { uploadContentMedia } from "@/lib/supabase/storage";
 
 export const maxDuration = 300;
 
@@ -30,13 +21,21 @@ function isConfigured(val: string | undefined, placeholder: string): val is stri
  * Only Replicate is wired for real — RUNWAY_API_KEY/LUMA_API_KEY/PIAPI_API_KEY
  * exist as placeholders in .env.local but no direct-API integration was
  * built for them (each has its own request/response shape and this wasn't
- * verified against a live account). "kling"/"luma" below map to their
- * Replicate-hosted equivalents; "runway"/"pika" aren't reliably available
- * on Replicate and return a clear error instead of a fabricated call.
+ * verified against a live account). "kling"/"luma" below map to Replicate
+ * video models; "runway"/"pika" aren't reliably available on Replicate and
+ * return a clear error instead of a fabricated call.
+ *
+ * kwaivgi/kling-v1.6-standard and luma/ray both 404 as of this fix — verified
+ * live against the Replicate API, not assumed from the original comment above
+ * (Kling has moved to v3/v4; Replicate no longer lists a Luma model at all).
+ * Both "kling" and "luma" now point at currently-live Kling tiers so the
+ * provider toggle still offers two real, distinct options — same
+ * start_image/prompt/duration input shape as the old mapping, so no other
+ * code here needed to change.
  */
 const REPLICATE_VIDEO_MODEL_MAP: Record<string, `${string}/${string}`> = {
-  kling: "kwaivgi/kling-v1.6-standard",
-  luma: "luma/ray",
+  kling: "kwaivgi/kling-v4.0",
+  luma: "kwaivgi/kling-v3-video",
 };
 
 function extractUrl(item: unknown): string | null {
@@ -115,63 +114,6 @@ async function generateWithColab(prompt: string, duration: number, endpoint: str
   return videoUrl;
 }
 
-const KEN_BURNS_PRESETS: Record<string, { z: [number, number]; x: [number, number]; y: [number, number] }> = {
-  None:          { z: [1.0, 1.15], x: [0.5, 0.5], y: [0.5, 0.5] },
-  "Pan Left":    { z: [1.25, 1.25], x: [1.0, 0.0], y: [0.5, 0.5] },
-  "Pan Right":   { z: [1.25, 1.25], x: [0.0, 1.0], y: [0.5, 0.5] },
-  "Zoom In":     { z: [1.0, 1.35], x: [0.5, 0.5], y: [0.5, 0.5] },
-  "Zoom Out":    { z: [1.35, 1.0], x: [0.5, 0.5], y: [0.5, 0.5] },
-  "Orbit Left":  { z: [1.15, 1.3], x: [0.85, 0.15], y: [0.5, 0.5] },
-  "Orbit Right": { z: [1.15, 1.3], x: [0.15, 0.85], y: [0.5, 0.5] },
-  "Tilt Up":     { z: [1.25, 1.25], x: [0.5, 0.5], y: [1.0, 0.0] },
-  "Tilt Down":   { z: [1.25, 1.25], x: [0.5, 0.5], y: [0.0, 1.0] },
-  "Crane Up":    { z: [1.3, 1.05], x: [0.5, 0.5], y: [0.9, 0.1] },
-};
-
-/**
- * Fully local, zero-cost provider: applies a Ken Burns pan/zoom effect to an
- * uploaded photo with ffmpeg. No GPU, no external service, no quota — this
- * hardware (4GB VRAM, no CUDA) can't realistically run AI video diffusion
- * models, so this is simulated camera motion on a still photo rather than
- * AI-generated motion, but it's fast and always available.
- */
-async function generateWithKenBurns(image: string, duration: number, camera: string): Promise<string> {
-  const preset = KEN_BURNS_PRESETS[camera] ?? KEN_BURNS_PRESETS.None;
-  const match = image.match(/^data:(.+);base64,(.*)$/);
-  if (!match) throw new Error("Invalid image data");
-
-  const fps = 24;
-  const clampedDuration = Math.min(10, Math.max(1, duration));
-  const frames = fps * clampedDuration;
-  const zExpr = `${preset.z[0]}+(${preset.z[1]}-${preset.z[0]})*on/(${frames}-1)`;
-  const xExpr = `(${preset.x[0]}+(${preset.x[1]}-${preset.x[0]})*on/(${frames}-1))*(iw-iw/zoom)`;
-  const yExpr = `(${preset.y[0]}+(${preset.y[1]}-${preset.y[0]})*on/(${frames}-1))*(ih-ih/zoom)`;
-  const filter =
-    `scale=3840:2160:force_original_aspect_ratio=increase,crop=3840:2160,` +
-    `zoompan=z='${zExpr}':x='${xExpr}':y='${yExpr}':d=1:s=1024x576:fps=${fps}`;
-
-  const id = randomUUID();
-  const srcPath = join(tmpdir(), `kb-src-${id}.jpg`);
-  const outPath = join(tmpdir(), `kb-out-${id}.mp4`);
-
-  try {
-    await writeFile(srcPath, Buffer.from(match[2], "base64"));
-    await execFileAsync(ffmpegPath, [
-      "-y", "-loop", "1", "-i", srcPath,
-      "-vf", filter,
-      "-t", String(clampedDuration),
-      "-pix_fmt", "yuv420p",
-      "-movflags", "+faststart",
-      outPath,
-    ]);
-    const buffer = await readFile(outPath);
-    return `data:video/mp4;base64,${buffer.toString("base64")}`;
-  } finally {
-    await unlink(srcPath).catch(() => {});
-    await unlink(outPath).catch(() => {});
-  }
-}
-
 const CAMERA_SUFFIX: Record<string, string> = {
   "Pan Left": "camera pans left",
   "Pan Right": "camera pans right",
@@ -185,14 +127,14 @@ const CAMERA_SUFFIX: Record<string, string> = {
 };
 
 export async function POST(request: NextRequest) {
-  let body: { prompt?: string; provider?: string; duration?: number; image?: string; camera?: string };
+  let body: { prompt?: string; provider?: string; duration?: number; image?: string; camera?: string; orgId?: string };
   try {
     body = await request.json();
   } catch {
     return Response.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { prompt, provider = "kling", duration = 5, image, camera = "None" } = body;
+  const { prompt, provider = "kling", duration = 5, image, camera = "None", orgId } = body;
   if (!prompt?.trim()) {
     return Response.json({ error: "Prompt is required" }, { status: 400 });
   }
@@ -203,7 +145,8 @@ export async function POST(request: NextRequest) {
   const isLTX = provider === "ltx";
   const isKenBurns = provider === "kenburns";
   const isColab = provider === "wan";
-  const isReplicate = !isLTX && !isKenBurns && !isColab;
+  const isPiapi = provider === "piapi";
+  const isReplicate = !isLTX && !isKenBurns && !isColab && !isPiapi;
   const modelId = isReplicate ? REPLICATE_VIDEO_MODEL_MAP[provider] : undefined;
   const replicateToken = process.env.REPLICATE_API_TOKEN;
   const colabEndpoint = process.env.COLAB_VIDEO_ENDPOINT;
@@ -221,11 +164,24 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: "Video generation needs REPLICATE_API_TOKEN configured in .env.local" }, { status: 400 });
     }
   }
+  if (isPiapi) {
+    if (!isPiapiConfigured()) {
+      return Response.json({ error: "PiAPI isn't configured yet — add PIAPI_API_KEY in .env.local" }, { status: 400 });
+    }
+    if (!image) {
+      return Response.json({ error: "PiAPI image-to-video needs a source image" }, { status: 400 });
+    }
+    if (!orgId) {
+      return Response.json({ error: "orgId is required for PiAPI generation (needed to host the source image)" }, { status: 400 });
+    }
+  }
 
   const authEnabled = isSupabaseConfigured();
   let userId: string | null = null;
   let creditsBefore = 0;
-  const cost = isReplicate ? 20 : 0;
+  // PiAPI's real-dollar cost runs well under Replicate's for the same model
+  // (live pricing research, not a guess) — the in-app credit cost reflects that.
+  const cost = isReplicate ? 20 : isPiapi ? 12 : 0;
 
   if (authEnabled) {
     const supabase = await createClient();
@@ -246,6 +202,18 @@ export async function POST(request: NextRequest) {
     let videoUrl: string;
     if (isKenBurns) {
       videoUrl = await generateWithKenBurns(image!, duration, camera);
+    } else if (isPiapi) {
+      let sourceImageUrl = image!;
+      // PiAPI needs a real fetchable URL, not the data: URI the UI uploads as.
+      if (sourceImageUrl.startsWith("data:")) {
+        const match = sourceImageUrl.match(/^data:(.+);base64,(.*)$/);
+        if (!match) throw new Error("Invalid image data");
+        const admin = createAdminClient();
+        const { url, error: uploadError } = await uploadContentMedia(admin, orgId!, Buffer.from(match[2], "base64"), match[1], "jpg");
+        if (uploadError || !url) throw new Error(uploadError ?? "Couldn't upload the source image for PiAPI");
+        sourceImageUrl = url;
+      }
+      videoUrl = await generateKlingVideoViaPiapi({ imageUrl: sourceImageUrl, prompt: fullPrompt, durationSeconds: duration, aspectRatio: "9:16" });
     } else if (isLTX) {
       videoUrl = await generateWithLTX(fullPrompt, duration, image);
     } else if (isColab) {
@@ -263,7 +231,9 @@ export async function POST(request: NextRequest) {
 
     if (authEnabled && userId) {
       const admin = createAdminClient();
-      await admin.from("profiles").update({ credits: creditsBefore - cost }).eq("id", userId);
+      if (!(await spendCredits(admin, userId, cost))) {
+        return Response.json({ error: "Not enough credits — top up to continue" }, { status: 402 });
+      }
       await admin.from("generations").insert({
         user_id: userId,
         type: "video",

@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { spendCredits } from "@/lib/credits";
 import { getBrandProfile } from "@/lib/supabase/brand";
 import { isHeyGenConfigured, generateAvatarVideo } from "@/lib/ai/heygen";
 import { expandIdeaToScript } from "@/lib/ai/avatarScript";
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest) {
   if (previewOnly) {
     if (!idea) return Response.json({ error: "Provide an idea to expand into a script" }, { status: 400 });
     if (!isAnthropicConfigured()) {
-      return Response.json({ error: "Script preview needs GEMINI_API_KEY configured — or write your own script instead" }, { status: 400 });
+      return Response.json({ error: "Script preview needs GROQ_API_KEY configured — or write your own script instead" }, { status: 400 });
     }
     try {
       let brandProfile = null;
@@ -93,7 +94,7 @@ export async function POST(request: NextRequest) {
     let finalScript = script;
     if (!finalScript) {
       if (!isAnthropicConfigured()) {
-        return Response.json({ error: "Describing an idea needs GEMINI_API_KEY configured — or write your own script instead" }, { status: 400 });
+        return Response.json({ error: "Describing an idea needs GROQ_API_KEY configured — or write your own script instead" }, { status: 400 });
       }
       const brandProfile = orgId && supabase ? await getBrandProfile(supabase, orgId) : null;
       finalScript = await expandIdeaToScript({ idea: idea!, brandProfile });
@@ -103,7 +104,9 @@ export async function POST(request: NextRequest) {
 
     if (authEnabled && userId) {
       const admin = createAdminClient();
-      await admin.from("profiles").update({ credits: creditsBefore - COST }).eq("id", userId);
+      if (!(await spendCredits(admin, userId, COST))) {
+        return Response.json({ error: "Not enough credits — top up to continue" }, { status: 402 });
+      }
       await admin.from("generations").insert({
         user_id: userId,
         type: "avatar_video",

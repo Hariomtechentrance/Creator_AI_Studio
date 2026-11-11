@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Select from "@radix-ui/react-select";
-import { X, Mail, Phone, Building2, Star, Trash2, Tag, UserCircle2, ChevronDown, Check, Sparkles, Plus, CalendarClock, CheckCircle2, Circle } from "lucide-react";
+import { X, Mail, Phone, MapPin, ClipboardList, Building2, Star, Trash2, Tag, UserCircle2, ChevronDown, Check, Sparkles, Plus, CalendarClock, CheckCircle2, Circle } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { getLeadNotes, addLeadNote, deleteLead, updateLeadTags, assignLead } from "@/lib/supabase/leads";
 import { getTasksForLead, createTask, updateTaskStatus } from "@/lib/supabase/tasks";
@@ -54,6 +54,15 @@ export default function LeadDetailDialog({ lead, onOpenChange, orgId, userId, me
   if (!lead) return null;
   const statusMeta = STATUS_META[lead.status] ?? STATUS_META.new;
   const insights = (lead.ai_insights ?? {}) as AiInsights;
+  // Extra answers captured at import (Meta lead-form questions, campaign/ad
+  // names) — the context a caller needs before dialling.
+  const customFields = lead.custom_fields;
+  const formAnswers: [string, string][] =
+    customFields && typeof customFields === "object" && !Array.isArray(customFields)
+      ? Object.entries(customFields)
+          .filter(([, v]) => typeof v === "string" || typeof v === "number")
+          .map(([k, v]) => [k, String(v)])
+      : [];
   const assignedMember = members.find((m) => m.user_id === lead.assigned_to);
 
   const handleAddNote = async () => {
@@ -188,8 +197,25 @@ export default function LeadDetailDialog({ lead, onOpenChange, orgId, userId, me
 
           <div className="flex flex-wrap gap-3 text-xs" style={{ color: "var(--text-secondary)" }}>
             {lead.email && <span className="flex items-center gap-1.5"><Mail size={11} /> {lead.email}</span>}
-            {lead.phone && <span className="flex items-center gap-1.5"><Phone size={11} /> {lead.phone}</span>}
+            {lead.phone && <a href={`tel:${lead.phone}`} className="flex items-center gap-1.5 hover:text-white"><Phone size={11} /> {lead.phone}</a>}
+            {lead.location && <span className="flex items-center gap-1.5"><MapPin size={11} /> {lead.location}</span>}
           </div>
+
+          {formAnswers.length > 0 && (
+            <div className="rounded-xl p-3 space-y-1.5" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
+              <p className="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5" style={{ color: "var(--text-secondary)" }}>
+                <ClipboardList size={12} /> Form details
+              </p>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+                {formAnswers.map(([key, value]) => (
+                  <div key={key} className="contents">
+                    <dt className="capitalize" style={{ color: "var(--text-muted)" }}>{key.replace(/_/g, " ")}</dt>
+                    <dd className="break-words" style={{ color: "var(--text-secondary)" }}>{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          )}
 
           <div className="flex items-center gap-2 rounded-xl p-3" style={{ background: "rgba(124,58,237,0.08)", border: "1px solid rgba(124,58,237,0.2)" }}>
             <Star size={14} style={{ color: "#f59e0b" }} />

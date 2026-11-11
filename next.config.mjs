@@ -21,6 +21,14 @@ export default {
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'X-XSS-Protection', value: '1; mode=block' },
           { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
+          // Partial CSP on purpose. A full `default-src`/`script-src` policy
+          // would break this app's heavy inline-style usage (React `style={{}}`
+          // => style attributes) and the many third-party media hosts
+          // (Replicate, HeyGen, HF, Google) until a nonce-based CSP is built.
+          // These directives close the highest-severity holes without that
+          // refactor: clickjacking (frame-ancestors), <base> hijacking, plugin
+          // injection, and form redirection.
+          { key: 'Content-Security-Policy', value: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'" },
         ],
       },
     ];

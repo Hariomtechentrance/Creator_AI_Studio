@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { exchangeMetaCode, getMetaPages } from "@/lib/social/meta";
+import { exchangeMetaCode, getMetaPages, getMetaUser } from "@/lib/social/meta";
 import { parseOAuthState, OAUTH_NONCE_COOKIE } from "@/lib/social/oauthState";
 
 export async function GET(request: NextRequest) {
@@ -26,8 +26,37 @@ export async function GET(request: NextRequest) {
     const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/social/callback/meta`;
     const userAccessToken = await exchangeMetaCode(code, redirectUri);
     const pages = await getMetaPages(userAccessToken);
+    const metaUser = await getMetaUser(userAccessToken);
 
     const admin = createAdminClient();
+
+    // Ad-account-level operations (listing ad accounts, creating
+    // campaigns/ad sets/ads) need the USER token — the ads_management scope
+    // lives on it, not on a per-Page token. Page tokens (stored below) are
+    // only good for posting content and referencing a page_id in ad
+    // creative, not for calling /act_{id}/... endpoints directly.
+    await admin.from("social_accounts").upsert(
+      {
+        org_id: state.orgId,
+        platform: "meta_ads",
+        account_id: metaUser.id,
+        account_name: metaUser.name,
+        account_username: null,
+        account_avatar: null,
+        account_type: "user",
+        access_token: userAccessToken,
+        refresh_token: null,
+        token_expires_at: null,
+        scopes: ["ads_management", "business_management"],
+        is_active: true,
+        last_synced_at: new Date().toISOString(),
+        follower_count: 0,
+        following_count: 0,
+        post_count: 0,
+      },
+      { onConflict: "org_id,platform,account_id" },
+    );
+
     for (const page of pages) {
       await admin.from("social_accounts").upsert(
         {
@@ -64,7 +93,7 @@ export async function GET(request: NextRequest) {
             access_token: page.pageAccessToken,
             refresh_token: null,
             token_expires_at: null,
-            scopes: ["instagram_content_publish"],
+            scopes: ["instagram_basic", "pages_manage_posts"],
             is_active: true,
             last_synced_at: new Date().toISOString(),
             follower_count: 0,

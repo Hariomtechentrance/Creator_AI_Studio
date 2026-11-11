@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, ContentPost, SocialAccount } from "@/types/database";
-import { postToFacebookPage, postToInstagram } from "@/lib/social/meta";
+import { postToFacebookPage, postToInstagram, postFacebookCarousel, postInstagramCarousel } from "@/lib/social/meta";
 import { postToLinkedIn } from "@/lib/social/linkedin";
+import { uploadYoutubeVideo, refreshGoogleToken } from "@/lib/social/google";
 
 export type PublishResults = Record<string, { success: boolean; error?: string; id?: string }>;
 
@@ -13,10 +14,17 @@ export type PublishResults = Record<string, { success: boolean; error?: string; 
 export async function publishContentPost(post: ContentPost, accounts: SocialAccount[]): Promise<PublishResults> {
   const results: PublishResults = {};
   const isVideo = post.media_type === "video";
+  const isCarousel = post.media_type === "carousel";
   const mediaUrl = post.media_urls[0];
 
   for (const platform of post.platforms) {
-    const account = accounts.find((a) => a.platform === platform);
+    const platformAccounts = accounts.filter((a) => a.platform === platform);
+    // Prefer the account explicitly marked default — multiple accounts can be
+    // connected per platform (e.g. two Facebook Pages), and silently picking
+    // whichever row the query happens to return first risked posting to the
+    // wrong Page. Falls back to the first one so single-account orgs (the
+    // common case) keep working with no setup required.
+    const account = platformAccounts.find((a) => a.is_default) ?? platformAccounts[0];
     if (!account || !account.access_token) {
       results[platform] = { success: false, error: "Not connected" };
       continue;
@@ -24,16 +32,33 @@ export async function publishContentPost(post: ContentPost, accounts: SocialAcco
 
     try {
       if (platform === "facebook") {
-        const id = isVideo
+        const id = isCarousel
+          ? await postFacebookCarousel(account.account_id, account.access_token, post.caption ?? "", post.media_urls)
+          : isVideo
           ? await postToFacebookPage(account.account_id, account.access_token, post.caption ?? "", undefined, mediaUrl)
           : await postToFacebookPage(account.account_id, account.access_token, post.caption ?? "", mediaUrl);
         results[platform] = { success: true, id };
       } else if (platform === "instagram") {
         if (!mediaUrl) throw new Error(`Instagram requires ${isVideo ? "a video" : "an image"} — this post has none`);
-        const id = await postToInstagram(account.account_id, account.access_token, mediaUrl, post.caption ?? "", isVideo ? "video" : "image");
+        const id = isCarousel
+          ? await postInstagramCarousel(account.account_id, account.access_token, post.media_urls, post.caption ?? "")
+          : await postToInstagram(account.account_id, account.access_token, mediaUrl, post.caption ?? "", isVideo ? "video" : "image");
         results[platform] = { success: true, id };
       } else if (platform === "linkedin") {
         const id = await postToLinkedIn(account.account_id, account.access_token, post.caption ?? "", mediaUrl, isVideo ? "video" : "image");
+        results[platform] = { success: true, id };
+      } else if (platform === "youtube") {
+        // YouTube only accepts video uploads. Google access tokens expire ~1h,
+        // so mint a fresh one from the stored refresh token before uploading —
+        // a connected account is usually well past its original access token by
+        // publish time.
+        if (!mediaUrl) throw new Error("YouTube requires a video — this post has none");
+        if (!isVideo) throw new Error("YouTube posting currently supports video only");
+        const accessToken = account.refresh_token
+          ? await refreshGoogleToken(account.refresh_token)
+          : account.access_token;
+        const title = (post.title ?? (post.caption ?? "Untitled")).slice(0, 99);
+        const id = await uploadYoutubeVideo(accessToken, mediaUrl, title, post.caption ?? "");
         results[platform] = { success: true, id };
       } else {
         results[platform] = { success: false, error: "Publishing not built for this platform yet" };

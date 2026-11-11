@@ -38,7 +38,11 @@ export interface CreateLeadInput {
   email: string | null;
   phone: string | null;
   company: string | null;
+  /** City — leads.location. Optional so existing callers without a city don't have to pass it. */
+  location?: string | null;
   source: LeadSource;
+  /** Extra answers with no dedicated column (e.g. a Meta lead form's qualifying questions, ad/campaign names). */
+  customFields?: Record<string, string>;
 }
 
 export async function createLead(
@@ -60,7 +64,7 @@ export async function createLead(
       name: input.name,
       email: input.email,
       phone: input.phone,
-      location: null,
+      location: input.location?.trim() || null,
       company: input.company,
       source: input.source,
       source_post_id: null,
@@ -84,7 +88,7 @@ export async function createLead(
       converted_value: null,
       converted_at: null,
       lost_reason: null,
-      custom_fields: {},
+      custom_fields: input.customFields ?? {},
     })
     .select("*")
     .single();

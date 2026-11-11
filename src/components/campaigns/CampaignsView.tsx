@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import Header from "@/components/layout/Header";
-import { Megaphone, Wand2, Trash2, TrendingUp, Target, DollarSign, Rocket } from "lucide-react";
+import { Megaphone, Wand2, Trash2, TrendingUp, Target, DollarSign, Rocket, Eye, MousePointerClick, IndianRupee, Percent, Users, MapPin } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { createCampaignFromAdCopy, updateCampaignStatus, deleteCampaign } from "@/lib/supabase/campaigns";
+import { createCampaignFromAdCopy, deleteCampaign } from "@/lib/supabase/campaigns";
 import type { Campaign } from "@/types/database";
 import type { AdCopyResult } from "@/lib/ai/adCopy";
 
@@ -29,6 +29,19 @@ export default function CampaignsView({ orgId, userId, initialCampaigns }: { org
   const [saving, setSaving] = useState(false);
   const [launchingId, setLaunchingId] = useState<string | null>(null);
   const [launchNotes, setLaunchNotes] = useState<Record<string, string>>({});
+  const [insights, setInsights] = useState<Record<string, { impressions: number; clicks: number; spend: number; ctr: number; reach: number; hasData: boolean }>>({});
+  const [loadingInsights, setLoadingInsights] = useState<string | null>(null);
+  const [insightsError, setInsightsError] = useState<Record<string, string>>({});
+  const [breakdowns, setBreakdowns] = useState<Record<string, { ageGender: { age: string; gender: string; clicks: number; impressions: number; reach: number }[]; region: { region: string; clicks: number; impressions: number; reach: number; spend: number }[] }>>({});
+  const [loadingBreakdownId, setLoadingBreakdownId] = useState<string | null>(null);
+  const [breakdownError, setBreakdownError] = useState<Record<string, string>>({});
+  const [openBreakdownId, setOpenBreakdownId] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [toggleError, setToggleError] = useState<Record<string, string>>({});
+  const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null);
+  const [budgetInput, setBudgetInput] = useState("");
+  const [savingBudget, setSavingBudget] = useState(false);
+  const [budgetError, setBudgetError] = useState<Record<string, string>>({});
 
   const handleGenerate = async () => {
     if (!description.trim() || !orgId) return;
@@ -77,9 +90,61 @@ export default function CampaignsView({ orgId, userId, initialCampaigns }: { org
 
   const handleToggleStatus = async (c: Campaign) => {
     const next = c.status === "active" ? "paused" : "active";
-    setCampaigns((prev) => prev.map((x) => (x.id === c.id ? { ...x, status: next } : x)));
-    const supabase = createClient();
-    await updateCampaignStatus(supabase, c.id, next);
+    setTogglingId(c.id);
+    setToggleError((prev) => ({ ...prev, [c.id]: "" }));
+    try {
+      const res = await fetch("/api/ads/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ campaignId: c.id, status: next }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setToggleError((prev) => ({ ...prev, [c.id]: data.error ?? "Couldn't update status" }));
+        return;
+      }
+      // Only reflect the new state locally once Meta has actually confirmed
+      // it (or, for a draft that never reached Meta, once the local update
+      // itself succeeded) — never flip the label optimistically before that.
+      setCampaigns((prev) => prev.map((x) => (x.id === c.id ? { ...x, status: next } : x)));
+    } catch (err) {
+      setToggleError((prev) => ({ ...prev, [c.id]: err instanceof Error ? err.message : "Couldn't reach the server" }));
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+  const handleStartEditBudget = (c: Campaign) => {
+    setEditingBudgetId(c.id);
+    setBudgetInput(String(c.budget || ""));
+  };
+
+  const handleSaveBudget = async (campaignId: string) => {
+    const dailyBudget = Number(budgetInput);
+    if (!dailyBudget || dailyBudget < 100) {
+      setBudgetError((prev) => ({ ...prev, [campaignId]: "Minimum ₹100/day" }));
+      return;
+    }
+    setSavingBudget(true);
+    setBudgetError((prev) => ({ ...prev, [campaignId]: "" }));
+    try {
+      const res = await fetch("/api/ads/budget", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ campaignId, dailyBudget }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setBudgetError((prev) => ({ ...prev, [campaignId]: data.error ?? "Couldn't update budget" }));
+        return;
+      }
+      setCampaigns((prev) => prev.map((x) => (x.id === campaignId ? { ...x, budget: dailyBudget } : x)));
+      setEditingBudgetId(null);
+    } catch (err) {
+      setBudgetError((prev) => ({ ...prev, [campaignId]: err instanceof Error ? err.message : "Couldn't reach the server" }));
+    } finally {
+      setSavingBudget(false);
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -108,6 +173,49 @@ export default function CampaignsView({ orgId, userId, initialCampaigns }: { org
       setLaunchNotes((prev) => ({ ...prev, [c.id]: err instanceof Error ? err.message : "Launch failed" }));
     } finally {
       setLaunchingId(null);
+    }
+  };
+
+  const handleViewInsights = async (campaignId: string) => {
+    setLoadingInsights(campaignId);
+    setInsightsError((prev) => ({ ...prev, [campaignId]: "" }));
+    try {
+      const res = await fetch(`/api/ads/insights?campaignId=${campaignId}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setInsightsError((prev) => ({ ...prev, [campaignId]: data.error ?? "Couldn't load insights" }));
+        return;
+      }
+      setInsights((prev) => ({ ...prev, [campaignId]: data.insights }));
+    } catch (err) {
+      setInsightsError((prev) => ({ ...prev, [campaignId]: err instanceof Error ? err.message : "Couldn't reach the server" }));
+    } finally {
+      setLoadingInsights(null);
+    }
+  };
+
+  const handleToggleBreakdown = async (campaignId: string) => {
+    if (openBreakdownId === campaignId) {
+      setOpenBreakdownId(null);
+      return;
+    }
+    setOpenBreakdownId(campaignId);
+    if (breakdowns[campaignId]) return;
+
+    setLoadingBreakdownId(campaignId);
+    setBreakdownError((prev) => ({ ...prev, [campaignId]: "" }));
+    try {
+      const res = await fetch(`/api/ads/insights-breakdown?campaignId=${campaignId}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setBreakdownError((prev) => ({ ...prev, [campaignId]: data.error ?? "Couldn't load the breakdown" }));
+        return;
+      }
+      setBreakdowns((prev) => ({ ...prev, [campaignId]: { ageGender: data.ageGender, region: data.region } }));
+    } catch (err) {
+      setBreakdownError((prev) => ({ ...prev, [campaignId]: err instanceof Error ? err.message : "Couldn't reach the server" }));
+    } finally {
+      setLoadingBreakdownId(null);
     }
   };
 
@@ -175,15 +283,28 @@ export default function CampaignsView({ orgId, userId, initialCampaigns }: { org
             <p className="text-sm font-bold text-white">Campaigns</p>
             {campaigns.map((c) => {
               const launchPlatform = c.platforms.map((p) => LAUNCHABLE[p]).find(Boolean);
+              const performance = c.performance as unknown as { campaign_id?: string; launched_platform?: string } | null;
+              const isLaunchedOnMeta = performance?.launched_platform === "facebook" && !!performance?.campaign_id;
+              const campaignInsights = insights[c.id];
               return (
                 <div key={c.id} className="rounded-xl p-3.5" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
                   <div className="flex items-start justify-between gap-3 mb-1">
                     <p className="text-sm font-semibold text-white">{c.name}</p>
                     <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase shrink-0" style={{ background: `${STATUS_COLOR[c.status] ?? "#6b7280"}20`, color: STATUS_COLOR[c.status] ?? "#6b7280" }}>{c.status}</span>
                   </div>
-                  <p className="text-[11px] capitalize mb-2" style={{ color: "var(--text-muted)" }}>{c.platforms.join(", ")} · {c.goal}</p>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => handleToggleStatus(c)} className="btn-secondary px-3 py-1 text-xs">{c.status === "active" ? "Pause" : "Activate"}</button>
+                  <p className="text-[11px] capitalize mb-2" style={{ color: "var(--text-muted)" }}>
+                    {c.platforms.join(", ")} · {c.goal}
+                    {isLaunchedOnMeta && c.budget > 0 && ` · ₹${c.budget}/day`}
+                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button onClick={() => handleToggleStatus(c)} disabled={togglingId === c.id} className="btn-secondary px-3 py-1 text-xs disabled:opacity-50">
+                      {togglingId === c.id ? "…" : c.status === "active" ? "Pause" : "Activate"}
+                    </button>
+                    {isLaunchedOnMeta && editingBudgetId !== c.id && (
+                      <button onClick={() => handleStartEditBudget(c)} className="px-3 py-1 rounded-lg text-xs font-semibold" style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-secondary)" }}>
+                        Edit Budget
+                      </button>
+                    )}
                     {launchPlatform && c.status === "draft" && (
                       <button
                         onClick={() => handleLaunch(c, launchPlatform)}
@@ -194,10 +315,126 @@ export default function CampaignsView({ orgId, userId, initialCampaigns }: { org
                         {launchingId === c.id ? <span className="spinner w-3 h-3" /> : <><Rocket size={11} /> Launch</>}
                       </button>
                     )}
-                    <button onClick={() => handleDelete(c.id)} className="ml-auto p-1.5 rounded-lg hover:bg-white/10"><Trash2 size={13} style={{ color: "#f87171" }} /></button>
+                    {isLaunchedOnMeta && (
+                      <button
+                        onClick={() => handleViewInsights(c.id)}
+                        disabled={loadingInsights === c.id}
+                        className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold"
+                        style={{ background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.3)", color: "#c4b5fd" }}
+                      >
+                        {loadingInsights === c.id ? <span className="spinner w-3 h-3" /> : <><TrendingUp size={11} /> Performance</>}
+                      </button>
+                    )}
+                    {isLaunchedOnMeta && (
+                      <button
+                        onClick={() => handleToggleBreakdown(c.id)}
+                        disabled={loadingBreakdownId === c.id}
+                        className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold"
+                        style={{ background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.3)", color: "#60a5fa" }}
+                      >
+                        {loadingBreakdownId === c.id ? <span className="spinner w-3 h-3" /> : <><Users size={11} /> Audience</>}
+                      </button>
+                    )}
+                    <button onClick={() => handleDelete(c.id)} className={isLaunchedOnMeta ? "p-1.5 rounded-lg hover:bg-white/10" : "ml-auto p-1.5 rounded-lg hover:bg-white/10"}><Trash2 size={13} style={{ color: "#f87171" }} /></button>
                   </div>
+                  {editingBudgetId === c.id && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className="text-xs" style={{ color: "var(--text-muted)" }}>₹</span>
+                      <input
+                        type="number"
+                        min={100}
+                        value={budgetInput}
+                        onChange={(e) => setBudgetInput(e.target.value)}
+                        className="w-24 px-2 py-1 rounded-lg text-xs"
+                        style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)", color: "white" }}
+                        placeholder="Daily budget"
+                      />
+                      <button
+                        onClick={() => handleSaveBudget(c.id)}
+                        disabled={savingBudget}
+                        className="px-3 py-1 rounded-lg text-xs font-semibold disabled:opacity-50"
+                        style={{ background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)", color: "#34d399" }}
+                      >
+                        {savingBudget ? "…" : "Save"}
+                      </button>
+                      <button onClick={() => setEditingBudgetId(null)} className="px-2 py-1 rounded-lg text-xs" style={{ color: "var(--text-muted)" }}>Cancel</button>
+                    </div>
+                  )}
+                  {toggleError[c.id] && <p className="text-[11px] mt-2" style={{ color: "#f87171" }}>{toggleError[c.id]}</p>}
+                  {budgetError[c.id] && <p className="text-[11px] mt-2" style={{ color: "#f87171" }}>{budgetError[c.id]}</p>}
                   {launchNotes[c.id] && (
                     <p className="text-[11px] mt-2" style={{ color: launchNotes[c.id].startsWith("Campaign created") || launchNotes[c.id].startsWith("PAUSED") ? "#34d399" : "#f87171" }}>{launchNotes[c.id]}</p>
+                  )}
+                  {insightsError[c.id] && <p className="text-[11px] mt-2" style={{ color: "#f87171" }}>{insightsError[c.id]}</p>}
+                  {campaignInsights && (
+                    campaignInsights.hasData ? (
+                      <div className="grid grid-cols-4 gap-2 mt-3 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
+                        <div className="text-center">
+                          <Eye size={13} className="mx-auto mb-1" style={{ color: "var(--text-muted)" }} />
+                          <p className="text-sm font-bold text-white">{campaignInsights.impressions.toLocaleString()}</p>
+                          <p className="text-[9px] uppercase" style={{ color: "var(--text-muted)" }}>Impressions</p>
+                        </div>
+                        <div className="text-center">
+                          <MousePointerClick size={13} className="mx-auto mb-1" style={{ color: "var(--text-muted)" }} />
+                          <p className="text-sm font-bold text-white">{campaignInsights.clicks.toLocaleString()}</p>
+                          <p className="text-[9px] uppercase" style={{ color: "var(--text-muted)" }}>Clicks</p>
+                        </div>
+                        <div className="text-center">
+                          <Percent size={13} className="mx-auto mb-1" style={{ color: "var(--text-muted)" }} />
+                          <p className="text-sm font-bold text-white">{campaignInsights.ctr.toFixed(2)}%</p>
+                          <p className="text-[9px] uppercase" style={{ color: "var(--text-muted)" }}>CTR</p>
+                        </div>
+                        <div className="text-center">
+                          <IndianRupee size={13} className="mx-auto mb-1" style={{ color: "var(--text-muted)" }} />
+                          <p className="text-sm font-bold text-white">₹{campaignInsights.spend.toFixed(2)}</p>
+                          <p className="text-[9px] uppercase" style={{ color: "var(--text-muted)" }}>Spend</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] mt-3 pt-3" style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border)" }}>
+                        No data yet — this campaign hasn&apos;t been activated in Meta Ads Manager, so nothing has run.
+                      </p>
+                    )
+                  )}
+                  {breakdownError[c.id] && <p className="text-[11px] mt-2" style={{ color: "#f87171" }}>{breakdownError[c.id]}</p>}
+                  {openBreakdownId === c.id && breakdowns[c.id] && (
+                    <div className="mt-3 pt-3 space-y-3" style={{ borderTop: "1px solid var(--border)" }}>
+                      <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+                        Who&apos;s seeing this — anonymous, aggregate only. Meta never exposes individual identity; that only comes from a lead form someone fills in themselves.
+                      </p>
+
+                      <div>
+                        <p className="text-[11px] font-semibold mb-1.5 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}><Users size={11} /> By age &amp; gender</p>
+                        {breakdowns[c.id].ageGender.filter((r) => r.impressions > 0).length === 0 ? (
+                          <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>No activity yet.</p>
+                        ) : (
+                          <div className="space-y-1">
+                            {breakdowns[c.id].ageGender.filter((r) => r.impressions > 0).sort((a, b) => b.clicks - a.clicks).map((r, i) => (
+                              <div key={i} className="flex items-center justify-between text-[11px] px-2 py-1 rounded-lg" style={{ background: "rgba(255,255,255,0.03)" }}>
+                                <span style={{ color: "var(--text-secondary)" }} className="capitalize">{r.age} · {r.gender}</span>
+                                <span style={{ color: "var(--text-muted)" }}>{r.clicks} clicks · {r.impressions.toLocaleString()} impr.</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <p className="text-[11px] font-semibold mb-1.5 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}><MapPin size={11} /> By region</p>
+                        {breakdowns[c.id].region.filter((r) => r.impressions > 0).length === 0 ? (
+                          <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>No activity yet.</p>
+                        ) : (
+                          <div className="space-y-1 max-h-48 overflow-y-auto">
+                            {breakdowns[c.id].region.filter((r) => r.impressions > 0).sort((a, b) => b.clicks - a.clicks).map((r, i) => (
+                              <div key={i} className="flex items-center justify-between text-[11px] px-2 py-1 rounded-lg" style={{ background: "rgba(255,255,255,0.03)" }}>
+                                <span style={{ color: "var(--text-secondary)" }}>{r.region}</span>
+                                <span style={{ color: "var(--text-muted)" }}>{r.clicks} clicks · ₹{r.spend.toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
               );

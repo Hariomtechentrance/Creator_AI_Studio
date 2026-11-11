@@ -23,7 +23,27 @@ services:
         sync: false
       - key: STRIPE_SECRET_KEY
         sync: false
-      - key: STRIPE_PUBLISHABLE_KEY
+      - key: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_APPRENTICE_PRICE_ID
+        sync: false
+      - key: STRIPE_ARTISAN_PRICE_ID
+        sync: false
+      - key: STRIPE_MAESTRO_PRICE_ID
+        sync: false
+      # Rate limiting only works cluster-wide with Redis; without it the
+      # in-memory fallback is per-instance (see src/lib/rateLimit.ts).
+      - key: REDIS_URL
+        sync: false
+      # Shared secret guarding the scheduled-publish cron worker
+      # (/api/social/publish-scheduled). Must match the cron service below.
+      - key: CRON_SECRET
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
         sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false
@@ -37,3 +57,16 @@ services:
         sync: false
       - key: LINKEDIN_CLIENT_SECRET
         sync: false
+
+  # Fires the scheduled-post worker every 5 minutes. Render cron services run a
+  # command on a schedule (not an HTTP ping), so this curls our own endpoint and
+  # passes the shared secret header that src/app/api/social/publish-scheduled
+  # checks. NEXT_PUBLIC_APP_URL and CRON_SECRET are injected as env in this
+  # service via the same sync:false values above (define them for this service
+  # too in the Render dashboard, or add them to the envVars list here).
+  - type: cron
+    name: publish-scheduled-worker
+    runtime: shell
+    schedule: "*/5 * * * *"
+    buildCommand: ""
+    startCommand: curl -fsS -X GET "$NEXT_PUBLIC_APP_URL/api/social/publish-scheduled" -H "x-cron-secret: $CRON_SECRET"

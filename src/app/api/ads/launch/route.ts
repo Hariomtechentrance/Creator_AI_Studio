@@ -24,13 +24,18 @@ export async function POST(request: NextRequest) {
   const { data: campaign } = await supabase.from("campaigns").select("*").eq("id", campaignId).single();
   if (!campaign) return Response.json({ error: "Campaign not found" }, { status: 404 });
 
-  const { data: account } = await supabase
+  // Ad-account-level calls need the user-level "meta_ads" token (has
+  // ads_management) — the "facebook" row only holds a Page token, which
+  // can't call /act_{id}/... endpoints. This was silently broken before:
+  // it queried the Page token here and every Meta launch would have failed.
+  const tokenPlatform = platform === "facebook" ? "meta_ads" : platform;
+  const { data: accounts } = await supabase
     .from("social_accounts")
     .select("*")
     .eq("org_id", campaign.org_id)
-    .eq("platform", platform)
-    .eq("is_active", true)
-    .maybeSingle();
+    .eq("platform", tokenPlatform)
+    .eq("is_active", true);
+  const account = (accounts ?? []).find((a) => a.is_default) ?? accounts?.[0];
 
   if (!account || !account.access_token) {
     return Response.json({ error: `${platform === "google_ads" ? "Google Ads" : "Meta"} isn't connected — see Social Accounts` }, { status: 400 });
