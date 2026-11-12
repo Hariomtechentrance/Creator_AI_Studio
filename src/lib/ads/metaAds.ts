@@ -212,6 +212,75 @@ export async function createMetaAd(input: {
   return { adId: data.id };
 }
 
+/**
+ * Uploads a video to Meta from an already-hosted URL (e.g. Supabase
+ * Storage) — Meta fetches it server-side rather than us proxying the
+ * bytes. Processing is async: the returned id isn't servable until
+ * pollMetaVideoStatus confirms "ready".
+ */
+export async function uploadMetaVideoFromUrl(input: { accessToken: string; adAccountId: string; videoUrl: string; name: string }): Promise<{ videoId: string }> {
+  const { accessToken, adAccountId, videoUrl, name } = input;
+  const body = new URLSearchParams({ file_url: videoUrl, name, access_token: accessToken });
+  const res = await fetch(`${GRAPH_URL}/act_${adAccountId}/advideos`, { method: "POST", body });
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error?.message ?? "Couldn't upload the video to Meta");
+  return { videoId: data.id };
+}
+
+/** Polls until Meta finishes transcoding an uploaded video, or gives up after ~2 minutes. */
+export async function pollMetaVideoReady(accessToken: string, videoId: string): Promise<boolean> {
+  for (let attempt = 0; attempt < 12; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 10_000));
+    const res = await fetch(`${GRAPH_URL}/${videoId}?fields=status&access_token=${accessToken}`);
+    const data = await res.json();
+    if (data.status?.video_status === "ready") return true;
+    if (data.status?.video_status === "error") throw new Error("Meta failed to process the uploaded video");
+  }
+  return false;
+}
+
+/** The actual video ad — creative (headline/body/video/thumbnail/destination) attached to the ad set. Always created PAUSED. */
+export async function createMetaVideoAd(input: {
+  accessToken: string;
+  adAccountId: string;
+  adSetId: string;
+  pageId: string;
+  name: string;
+  headline: string;
+  primaryText: string;
+  cta: string;
+  videoId: string;
+  thumbnailUrl: string;
+  destinationUrl: string;
+}): Promise<{ adId: string }> {
+  const { accessToken, adAccountId, adSetId, pageId, name, headline, primaryText, cta, videoId, thumbnailUrl, destinationUrl } = input;
+
+  const creative = {
+    object_story_spec: {
+      page_id: pageId,
+      video_data: {
+        video_id: videoId,
+        title: headline,
+        message: primaryText,
+        image_url: thumbnailUrl,
+        call_to_action: { type: resolveCta(cta), value: { link: destinationUrl } },
+      },
+    },
+  };
+
+  const body = new URLSearchParams({
+    name,
+    adset_id: adSetId,
+    status: "PAUSED",
+    creative: JSON.stringify(creative),
+    access_token: accessToken,
+  });
+  const res = await fetch(`${GRAPH_URL}/act_${adAccountId}/ads`, { method: "POST", body });
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error?.message ?? "Couldn't create the video ad");
+  return { adId: data.id };
+}
+
 export interface MetaCampaignInsights {
   impressions: number;
   clicks: number;
