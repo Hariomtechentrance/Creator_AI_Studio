@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import Script from "next/script";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { parseAbTest } from "@/lib/supabase/landingPages";
-import LandingPageForm from "@/components/landing-pages/LandingPageForm";
+import LandingPageForm, { type QualifyingField } from "@/components/landing-pages/LandingPageForm";
 import type { LandingPageSection } from "@/lib/ai/landingPage";
 
 export default async function PublicLandingPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -31,6 +31,8 @@ export default async function PublicLandingPage({ params }: { params: Promise<{ 
     .single();
 
   const sections = (page.sections ?? []) as unknown as LandingPageSection[];
+  // Falls back to [] if migration 018 hasn't been applied yet in this environment.
+  const qualifyingFields = ((page as unknown as { qualifying_fields?: QualifyingField[] }).qualifying_fields ?? []) as QualifyingField[];
   const abTest = parseAbTest(page);
 
   // Variant is assigned per-visitor (sticky via cookie) in proxy.ts, which
@@ -82,7 +84,7 @@ export default async function PublicLandingPage({ params }: { params: Promise<{ 
           {subheadline && <p className="text-lg" style={{ color: "#a1a1aa" }}>{subheadline}</p>}
         </div>
 
-        <LandingPageForm slug={slug} pageId={page.id} variant={variant} ctaText={ctaText} trackingEnabled={!!(gtmId || ga4Id || pixelId)} />
+        <LandingPageForm slug={slug} pageId={page.id} variant={variant} ctaText={ctaText} trackingEnabled={!!(gtmId || ga4Id || pixelId)} qualifyingFields={qualifyingFields} />
 
         <div className="space-y-10">
           {sections.map((s, i) => (

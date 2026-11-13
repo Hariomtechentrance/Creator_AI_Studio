@@ -15,12 +15,22 @@ function readGa4ClientId(): string | null {
   return match ? match[1] : null;
 }
 
-export default function LandingPageForm({ slug, pageId, variant, ctaText, trackingEnabled }: { slug: string; pageId: string; variant: "a" | "b"; ctaText: string; trackingEnabled?: boolean }) {
+export interface QualifyingField {
+  key: string;
+  label: string;
+  type: "text" | "select";
+  options?: string[];
+}
+
+export default function LandingPageForm({ slug, pageId, variant, ctaText, trackingEnabled, qualifyingFields = [] }: { slug: string; pageId: string; variant: "a" | "b"; ctaText: string; trackingEnabled?: boolean; qualifyingFields?: QualifyingField[] }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [city, setCity] = useState("");
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [message, setMessage] = useState("");
+
+  const allQualifyingAnswered = qualifyingFields.every((f) => (answers[f.key] ?? "").trim());
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,7 +39,7 @@ export default function LandingPageForm({ slug, pageId, variant, ctaText, tracki
       const res = await fetch("/api/public/lead-capture", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug, name, phone, city, pageId, variant, ga4ClientId: trackingEnabled ? readGa4ClientId() : null }),
+        body: JSON.stringify({ slug, name, phone, city, pageId, variant, ga4ClientId: trackingEnabled ? readGa4ClientId() : null, customFields: answers }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -82,10 +92,33 @@ export default function LandingPageForm({ slug, pageId, variant, ctaText, tracki
         value={city}
         onChange={(e) => setCity(e.target.value)}
       />
+      {qualifyingFields.map((f) =>
+        f.type === "select" ? (
+          <select
+            key={f.key}
+            className="w-full px-3 py-2.5 rounded-lg text-sm"
+            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: answers[f.key] ? "white" : "#71717a" }}
+            value={answers[f.key] ?? ""}
+            onChange={(e) => setAnswers((prev) => ({ ...prev, [f.key]: e.target.value }))}
+          >
+            <option value="" disabled>{f.label}</option>
+            {(f.options ?? []).map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+          </select>
+        ) : (
+          <input
+            key={f.key}
+            className="w-full px-3 py-2.5 rounded-lg text-sm"
+            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "white" }}
+            placeholder={f.label}
+            value={answers[f.key] ?? ""}
+            onChange={(e) => setAnswers((prev) => ({ ...prev, [f.key]: e.target.value }))}
+          />
+        )
+      )}
       {status === "error" && <p className="text-sm" style={{ color: "#f87171" }}>{message}</p>}
       <button
         type="submit"
-        disabled={status === "loading" || !name.trim() || !phone.trim() || !city.trim()}
+        disabled={status === "loading" || !name.trim() || !phone.trim() || !city.trim() || !allQualifyingAnswered}
         className="w-full py-3 rounded-xl font-bold text-white disabled:opacity-60"
         style={{ background: "linear-gradient(135deg,#7c3aed,#a855f7)" }}
       >

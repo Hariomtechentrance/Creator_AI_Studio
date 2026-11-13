@@ -21,14 +21,14 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Not available yet" }, { status: 400 });
   }
 
-  let body: { slug?: string; name?: string; email?: string; phone?: string; city?: string; pageId?: string; variant?: "a" | "b"; ga4ClientId?: string | null };
+  let body: { slug?: string; name?: string; email?: string; phone?: string; city?: string; pageId?: string; variant?: "a" | "b"; ga4ClientId?: string | null; customFields?: Record<string, string> };
   try {
     body = await request.json();
   } catch {
     return Response.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { slug, name, email, phone, city, pageId, variant, ga4ClientId } = body;
+  const { slug, name, email, phone, city, pageId, variant, ga4ClientId, customFields } = body;
   if (!slug || (!email?.trim() && !phone?.trim())) {
     return Response.json({ error: "An email or phone number is required" }, { status: 400 });
   }
@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
     company: null,
     location: typeof city === "string" ? city.trim().slice(0, 100) || null : null,
     source: "website",
+    customFields: customFields && typeof customFields === "object" ? customFields : undefined,
   });
 
   if (duplicate) {
