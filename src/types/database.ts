@@ -471,19 +471,21 @@ export interface Database {
           status: "draft" | "published";
           published_at: string | null;
           ab_test: Json;
+          qualifying_fields: Json;
           created_by: string | null;
           created_at: string;
           updated_at: string;
         };
         Insert: Omit<
           Database["public"]["Tables"]["landing_pages"]["Row"],
-          "id" | "created_at" | "updated_at" | "sections" | "cta_text" | "status" | "published_at" | "ab_test"
+          "id" | "created_at" | "updated_at" | "sections" | "cta_text" | "status" | "published_at" | "ab_test" | "qualifying_fields"
         > & {
           sections?: Json[];
           cta_text?: string;
           status?: "draft" | "published";
           published_at?: string | null;
           ab_test?: Json;
+          qualifying_fields?: Json;
         };
         Update: Partial<Database["public"]["Tables"]["landing_pages"]["Insert"]>;
         Relationships: [];
