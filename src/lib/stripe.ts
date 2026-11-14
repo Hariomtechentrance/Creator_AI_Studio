@@ -36,6 +36,8 @@ export const CREDIT_PACKS: CreditPack[] = [
   { id: "pack-5k", credits: 5000, bonus: 10, amountCents: 2000, currency: "usd" },
   { id: "pack-15k", credits: 15000, bonus: 20, amountCents: 5000, currency: "usd" },
   { id: "pack-50k", credits: 50000, bonus: 30, amountCents: 15000, currency: "usd" },
+  { id: "pack-growth-10k", credits: 20000, bonus: 25, amountCents: 12000, currency: "usd" },
+  { id: "pack-perf-25k", credits: 60000, bonus: 35, amountCents: 30000, currency: "usd" },
 ];
 
 export function findCreditPack(id: string | undefined): CreditPack | undefined {
