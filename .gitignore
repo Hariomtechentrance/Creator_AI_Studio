@@ -38,6 +38,10 @@ yarn-error.log*
 
 # local test output
 /demo-videos
+*.mp4
+* 2.*
+* 2
+supabase/.temp/
 
 # typescript
 *.tsbuildinfo

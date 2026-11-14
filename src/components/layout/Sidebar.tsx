@@ -33,6 +33,7 @@ const NAV_SECTIONS: NavSection[] = [
     defaultOpen: true,
     items: [
       { label: "Dashboard", href: "/dashboard", icon: <LayoutDashboard size={15} /> },
+      { label: "Claude Copilot", href: "/claude-studio", icon: <Bot size={15} />, badge: "Claude", badgeColor: "purple" },
     ],
   },
   {

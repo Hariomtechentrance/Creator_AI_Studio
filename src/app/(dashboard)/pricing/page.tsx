@@ -98,9 +98,72 @@ const CREDIT_PACKS = [
   { id: "pack-5k", credits: 5000, price: 20, bonus: 10 },
   { id: "pack-15k", credits: 15000, price: 50, bonus: 20 },
   { id: "pack-50k", credits: 50000, price: 150, bonus: 30 },
+  { id: "pack-growth-10k", credits: 20000, price: 120, bonus: 25, label: "₹10,000 Growth Pack" },
+  { id: "pack-perf-25k", credits: 60000, price: 300, bonus: 35, label: "₹25,000 Performance Pack" },
+];
+
+const CAMPAIGN_PLANS = [
+  {
+    id: "growth-10k",
+    name: "Growth Accelerator (₹10k Plan)",
+    priceInr: "₹10,000",
+    priceUsd: "$120",
+    period: "month",
+    color: "#8b5cf6",
+    badge: "Recommended for SMBs",
+    description: "Complete hands-off social content & Meta ad campaign powered by Claude",
+    features: [
+      "8 Custom Social Media Posts (Instagram, Facebook, LinkedIn)",
+      "8 High-retention Video Reel Scripts & Hook Directions",
+      "10-Day Meta Ads Awareness / Lead Campaign Setup (₹500/day)",
+      "20,000 AI Platform Tokens included",
+      "Direct Claude 3.5 Sonnet access inside CreatorAI Studio",
+      "No direct Anthropic subscription or API keys needed",
+      "One-click Publish to Facebook & Instagram",
+    ],
+  },
+  {
+    id: "traffic-clicks",
+    name: "Clickable & Traffic Plan",
+    priceInr: "₹15,000",
+    priceUsd: "$180",
+    period: "month",
+    color: "#3b82f6",
+    badge: "Traffic & Sales",
+    description: "Designed specifically to drive website clicks, visits & ecommerce purchases",
+    features: [
+      "15 High-converting Social Posts with CTA",
+      "10 Video Reel Scripts with Link-in-Bio hooks",
+      "High-CTR Meta & Google Search Clickable Ad Setup",
+      "Pixel Conversion & Destination Link UTM Tracking",
+      "35,000 AI Platform Tokens included",
+      "Continuous Ad Copy A/B Variations by Claude",
+      "Priority AI Queue",
+    ],
+  },
+  {
+    id: "app-downloads",
+    name: "App Download & Install Plan",
+    priceInr: "₹25,000",
+    priceUsd: "$300",
+    period: "month",
+    color: "#ec4899",
+    badge: "Mobile Apps",
+    description: "Optimized for iOS & Android app downloads and installs",
+    features: [
+      "20 App Promotion Posts + 15 Viral Reels",
+      "Meta App Install Campaign Setup (App Store / Play Store)",
+      "Deep-linking & Install Conversion Optimization",
+      "App Feature Spotlight Video Prompts",
+      "60,000 AI Platform Tokens included",
+      "Automated Cost-Per-Install (CPI) Ad Copy Refinement",
+      "Dedicated WhatsApp Support",
+    ],
+  },
 ];
 
 const CREDIT_COSTS = [
+  { action: "Claude Studio Copilot (Full Plan: 8 Posts + 8 Reels + Ad Setup)", cost: 25 },
   { action: "Generate 1 image (Flux Dev)", cost: 5 },
   { action: "Generate 1 image (Flux Pro)", cost: 8 },
   { action: "Generate 10s video (Runway)", cost: 25 },
@@ -235,6 +298,65 @@ export default function PricingPage() {
               </button>
             </div>
           ))}
+        </div>
+
+        {/* Full Growth & Campaign Accelerator Packages (Claude Powered) */}
+        <div className="space-y-6 pt-4">
+          <div className="text-center space-y-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-violet-400 bg-violet-950/40 px-3 py-1 rounded-full border border-violet-800/40">
+              🚀 Claude Copilot Campaign Packages
+            </span>
+            <h2 className="text-3xl font-black text-white">Full-Service Growth Packages</h2>
+            <p className="text-sm max-w-2xl mx-auto" style={{ color: "var(--text-secondary)" }}>
+              Includes Claude AI generation (posts + reels), token wallet balance, and ready-to-run Meta ad campaigns. No direct Anthropic fees or setup needed.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-6">
+            {CAMPAIGN_PLANS.map((pkg) => (
+              <div
+                key={pkg.id}
+                className="card relative flex flex-col justify-between"
+                style={{ borderColor: `${pkg.color}50`, boxShadow: `0 0 25px ${pkg.color}15` }}
+              >
+                {pkg.badge && (
+                  <div
+                    className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full text-xs font-bold text-white shadow-md"
+                    style={{ background: pkg.color }}
+                  >
+                    {pkg.badge}
+                  </div>
+                )}
+                <div>
+                  <div className="mb-4">
+                    <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: pkg.color }}>{pkg.name}</p>
+                    <div className="flex items-baseline gap-2 mb-1">
+                      <span className="text-3xl font-black text-white">{pkg.priceInr}</span>
+                      <span className="text-sm text-gray-400">({pkg.priceUsd}) / month</span>
+                    </div>
+                    <p className="text-xs text-gray-400">{pkg.description}</p>
+                  </div>
+
+                  <ul className="space-y-2.5 mb-6 text-xs text-gray-300">
+                    {pkg.features.map((f) => (
+                      <li key={f} className="flex items-start gap-2">
+                        <Check size={14} className="mt-0.5 shrink-0" style={{ color: pkg.color }} />
+                        <span>{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <a
+                  href="/claude-studio"
+                  className="btn-primary w-full justify-center py-2.5 text-xs font-bold"
+                  style={{ background: `linear-gradient(135deg, ${pkg.color}, ${pkg.color}cc)` }}
+                >
+                  Launch in Claude Studio
+                </a>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Credit packs */}

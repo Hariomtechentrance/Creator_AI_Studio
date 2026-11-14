@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Header from "@/components/layout/Header";
+import PromptCampaignBuilder from "@/components/campaigns/PromptCampaignBuilder";
 import { Megaphone, Wand2, Trash2, TrendingUp, Target, DollarSign, Rocket, Eye, MousePointerClick, IndianRupee, Percent, Users, MapPin } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { createCampaignFromAdCopy, deleteCampaign } from "@/lib/supabase/campaigns";
@@ -19,6 +21,7 @@ const STATUS_COLOR: Record<string, string> = { draft: "#6b7280", active: "#10b98
 const LAUNCHABLE: Record<string, "google_ads" | "facebook"> = { "Google Ads": "google_ads", "Meta Ads": "facebook" };
 
 export default function CampaignsView({ orgId, userId, initialCampaigns }: { orgId: string | null; userId: string | null; initialCampaigns: Campaign[] }) {
+  const router = useRouter();
   const [campaigns, setCampaigns] = useState(initialCampaigns);
   const [platform, setPlatform] = useState(PLATFORMS[0]);
   const [goal, setGoal] = useState("leads");
@@ -229,6 +232,8 @@ export default function CampaignsView({ orgId, userId, initialCampaigns }: { org
             AI drafts ad copy, targeting, and budget guidance. Meta Ads and Google Ads campaigns can launch for real (as a PAUSED shell you activate yourself) once connected in Social Accounts — LinkedIn/YouTube ad launching isn&apos;t wired.
           </p>
         </div>
+
+        <PromptCampaignBuilder orgId={orgId} onBuilt={() => router.refresh()} />
 
         {/* Generator */}
         <div className="rounded-2xl p-4 space-y-3" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
