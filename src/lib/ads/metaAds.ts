@@ -15,6 +15,40 @@ export interface MetaCityResult {
   countryCode: string | null;
 }
 
+export interface MetaInterestResult {
+  id: string;
+  name: string;
+  audienceSizeLowerBound?: number;
+  audienceSizeUpperBound?: number;
+  topic?: string;
+}
+
+/** Resolves a typed query to Meta's interest targeting items (e.g. "Auto mechanic", "Car parts", "Fleet management"). */
+export async function searchMetaInterests(accessToken: string, query: string): Promise<MetaInterestResult[]> {
+  const params = new URLSearchParams({
+    type: "adinterest",
+    q: query,
+    access_token: accessToken,
+  });
+  const res = await fetch(`${GRAPH_URL}/search?${params.toString()}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message ?? "Couldn't search interests");
+  interface RawInterest {
+    id: string | number;
+    name: string;
+    audience_size_lower_bound?: number;
+    audience_size_upper_bound?: number;
+    topic?: string;
+  }
+  return (data.data ?? []).map((i: RawInterest) => ({
+    id: String(i.id),
+    name: i.name,
+    audienceSizeLowerBound: i.audience_size_lower_bound,
+    audienceSizeUpperBound: i.audience_size_upper_bound,
+    topic: i.topic,
+  }));
+}
+
 /** Resolves a typed city name to Meta's internal targeting key — required before it can be used in geo_locations. */
 export async function searchMetaCities(accessToken: string, query: string): Promise<MetaCityResult[]> {
   const params = new URLSearchParams({
@@ -75,18 +109,24 @@ export async function createMetaCampaign(input: {
 
 /**
  * Objective-appropriate optimization goal — Meta requires one that matches
- * the campaign's objective. LEADS/SALES ideally optimize toward
- * on-site conversions, but that needs a Meta Pixel installed on the
- * business's website, which isn't part of this build — falling back to
- * LINK_CLICKS for those keeps the campaign valid and launchable without
- * silently pretending conversion tracking exists.
+ * the campaign's objective.
+ *
+ * LEADS without a pixel: We use LANDING_PAGE_VIEWS rather than raw
+ * LINK_CLICKS. LINK_CLICKS counts anyone who taps the link (including
+ * accidental and bot-like taps); LANDING_PAGE_VIEWS requires the actual
+ * destination page to load, filtering out low-quality clicks and producing
+ * meaningfully better lead quality. With a pixel, we upgrade to
+ * OFFSITE_CONVERSIONS (handled in createMetaAdSet).
+ *
+ * SALES: same logic — LANDING_PAGE_VIEWS without pixel,
+ * OFFSITE_CONVERSIONS with pixel.
  */
 const OPTIMIZATION_GOAL: Record<string, string> = {
   awareness: "REACH",
   traffic: "LINK_CLICKS",
   engagement: "POST_ENGAGEMENT",
-  leads: "LINK_CLICKS",
-  sales: "LINK_CLICKS",
+  leads: "LANDING_PAGE_VIEWS",
+  sales: "LANDING_PAGE_VIEWS",
 };
 
 export interface AdSetTargeting {
@@ -94,6 +134,7 @@ export interface AdSetTargeting {
   ageMin: number;
   ageMax: number;
   genders: "all" | "male" | "female";
+  interests?: Array<{ id: string; name: string }>;
 }
 
 /** Ad set — the layer that actually carries budget, schedule, and targeting (who/where/how much). Always created PAUSED. */
@@ -132,6 +173,13 @@ export async function createMetaAdSet(input: {
   };
   if (targeting.genders === "male") targetingSpec.genders = [1];
   if (targeting.genders === "female") targetingSpec.genders = [2];
+  if (targeting.interests && targeting.interests.length > 0) {
+    targetingSpec.flexible_spec = [
+      {
+        interests: targeting.interests.map((i) => ({ id: i.id, name: i.name })),
+      },
+    ];
+  }
 
   const body = new URLSearchParams({
     name,

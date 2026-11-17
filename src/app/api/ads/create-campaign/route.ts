@@ -8,7 +8,7 @@ interface CreateCampaignBody {
   name?: string;
   goal?: string;
   dailyBudget?: number;
-  targeting?: { cityKeys: string[]; cityNames: string[]; ageMin: number; ageMax: number; genders: "all" | "male" | "female" };
+  targeting?: { cityKeys: string[]; cityNames: string[]; ageMin: number; ageMax: number; genders: "all" | "male" | "female"; interests?: Array<{ id: string; name: string }> };
   creative?: { headline: string; primaryText: string; cta: string; imageUrl: string; destinationUrl: string };
 }
 
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
       name: `${name} — Ad Set`,
       goal,
       dailyBudgetInr: dailyBudget,
-      targeting: { cityKeys: targeting.cityKeys, ageMin: targeting.ageMin, ageMax: targeting.ageMax, genders: targeting.genders },
+      targeting: { cityKeys: targeting.cityKeys, ageMin: targeting.ageMin, ageMax: targeting.ageMax, genders: targeting.genders, interests: targeting.interests },
       pixelId: org?.meta_pixel_id,
     });
 
@@ -96,6 +96,7 @@ export async function POST(request: NextRequest) {
           age_min: targeting.ageMin,
           age_max: targeting.ageMax,
           genders: targeting.genders,
+          interests: (targeting.interests ?? []).map((i) => i.name),
         } as unknown as Database["public"]["Tables"]["campaigns"]["Row"]["target_audience"],
         ai_strategy: `${creative.primaryText}\n\nCTA: ${creative.cta}`,
         start_date: null,

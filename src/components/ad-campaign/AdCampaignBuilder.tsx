@@ -4,7 +4,7 @@ import { useState, useRef } from "react";
 import Header from "@/components/layout/Header";
 import {
   Megaphone, Eye, MousePointerClick, MessageCircle, Mail, ShoppingCart,
-  Wand2, RefreshCw, Check, X, MapPin, ImagePlus, Rocket, Sparkles,
+  Wand2, RefreshCw, Check, X, MapPin, ImagePlus, Rocket, Sparkles, Target,
 } from "lucide-react";
 import type { SocialAccount } from "@/types/database";
 import { resizeImageFile } from "@/lib/image";
@@ -29,6 +29,7 @@ const GOALS: { id: string; label: string; desc: string; icon: React.ReactNode }[
 ];
 
 interface City { key: string; name: string; region: string | null; countryCode: string | null }
+interface Interest { id: string; name: string; audienceSizeLowerBound?: number; audienceSizeUpperBound?: number; topic?: string }
 
 export default function AdCampaignBuilder({ orgId, connectedPlatforms }: { orgId: string | null; connectedPlatforms: SocialAccount["platform"][] }) {
   const [step, setStep] = useState<Step>("goal");
@@ -53,6 +54,12 @@ export default function AdCampaignBuilder({ orgId, connectedPlatforms }: { orgId
   const [ageMin, setAgeMin] = useState(18);
   const [ageMax, setAgeMax] = useState(65);
   const [genders, setGenders] = useState<"all" | "male" | "female">("all");
+
+  // Audience — interest targeting (B2B/industry filtering)
+  const [interestSearch, setInterestSearch] = useState("");
+  const [interestResults, setInterestResults] = useState<Interest[]>([]);
+  const [searchingInterests, setSearchingInterests] = useState(false);
+  const [selectedInterests, setSelectedInterests] = useState<Interest[]>([]);
 
   // Step 4 — creative
   const [imageDataUrl, setImageDataUrl] = useState("");
@@ -119,6 +126,26 @@ export default function AdCampaignBuilder({ orgId, connectedPlatforms }: { orgId
   };
   const removeCity = (key: string) => setSelectedCities((prev) => prev.filter((c) => c.key !== key));
 
+  const searchInterests = async (q: string) => {
+    setInterestSearch(q);
+    if (!orgId || q.trim().length < 2) { setInterestResults([]); return; }
+    setSearchingInterests(true);
+    try {
+      const res = await fetch(`/api/ads/search-interests?orgId=${orgId}&q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      setInterestResults(data.interests ?? []);
+    } finally {
+      setSearchingInterests(false);
+    }
+  };
+
+  const addInterest = (interest: Interest) => {
+    if (!selectedInterests.some((i) => i.id === interest.id)) setSelectedInterests((prev) => [...prev, interest]);
+    setInterestSearch("");
+    setInterestResults([]);
+  };
+  const removeInterest = (id: string) => setSelectedInterests((prev) => prev.filter((i) => i.id !== id));
+
   const handleFileUpload = async (file: File | undefined) => {
     if (!file || !orgId) return;
     setUploadingImage(true);
@@ -181,6 +208,7 @@ export default function AdCampaignBuilder({ orgId, connectedPlatforms }: { orgId
             ageMin,
             ageMax,
             genders,
+            interests: selectedInterests.map((i) => ({ id: i.id, name: i.name })),
           },
           creative: { headline, primaryText, cta, imageUrl: finalImageUrl, destinationUrl: destinationUrl.trim() },
         }),
@@ -341,6 +369,38 @@ export default function AdCampaignBuilder({ orgId, connectedPlatforms }: { orgId
               </div>
             </div>
 
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
+                <Target size={12} className="inline mr-1" />Interest targeting <span className="text-[10px] font-normal">(recommended for lead/sales campaigns)</span>
+              </p>
+              <div className="relative">
+                <input className="input w-full text-sm" placeholder="Search interests, e.g. Auto mechanic, Car parts" value={interestSearch} onChange={(e) => searchInterests(e.target.value)} />
+                {searchingInterests && <RefreshCw size={14} className="animate-spin absolute right-3 top-1/2 -translate-y-1/2" style={{ color: "var(--text-muted)" }} />}
+                {interestResults.length > 0 && (
+                  <div className="absolute z-10 w-full mt-1 rounded-xl overflow-hidden max-h-48 overflow-y-auto" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+                    {interestResults.map((i) => (
+                      <button key={i.id} onClick={() => addInterest(i)} className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-white/5" style={{ color: "var(--text-secondary)" }}>
+                        <span><Target size={12} className="inline mr-1.5 opacity-50" />{i.name}{i.topic ? <span className="text-xs opacity-50 ml-1">({i.topic})</span> : ""}</span>
+                        {i.audienceSizeLowerBound ? <span className="text-[10px] opacity-40">{(i.audienceSizeLowerBound / 1_000_000).toFixed(1)}M+</span> : null}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {selectedInterests.map((i) => (
+                  <span key={i.id} className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full" style={{ background: "rgba(16,185,129,0.15)", color: "#34d399" }}>
+                    {i.name} <button onClick={() => removeInterest(i.id)}><X size={11} /></button>
+                  </span>
+                ))}
+              </div>
+              {!selectedInterests.length && (
+                <p className="text-[11px] mt-1.5" style={{ color: "var(--text-muted)" }}>
+                  Add interests to narrow your audience — especially important for B2B campaigns to avoid junk leads. e.g. &quot;Automobile repair shop&quot;, &quot;Fleet management&quot;, &quot;Car parts dealer&quot;.
+                </p>
+              )}
+            </div>
+
             <div className="flex items-center gap-2">
               <button onClick={() => setStep("describe")} className="px-4 py-2.5 rounded-xl text-xs font-semibold" style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-secondary)" }}>Back</button>
               <button onClick={() => setStep("creative")} className="flex-1 py-3 rounded-xl text-sm font-bold text-white" style={{ background: "linear-gradient(135deg,#7c3aed,#a855f7)" }}>Next</button>
@@ -412,6 +472,7 @@ export default function AdCampaignBuilder({ orgId, connectedPlatforms }: { orgId
                 <div className="text-xs space-y-1" style={{ color: "var(--text-muted)" }}>
                   <p>Goal: {GOALS.find((g) => g.id === goal)?.label}</p>
                   <p>Audience: {selectedCities.length ? selectedCities.map((c) => c.name).join(", ") : "All of India"}, ages {ageMin}-{ageMax}, {genders}</p>
+                  {selectedInterests.length > 0 && <p>Interests: {selectedInterests.map((i) => i.name).join(", ")}</p>}
                   <p>Daily budget: ₹{dailyBudget}</p>
                 </div>
                 <button onClick={launchCampaign} disabled={launching} className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-bold text-white disabled:opacity-50" style={{ background: "linear-gradient(135deg,#7c3aed,#a855f7)" }}>

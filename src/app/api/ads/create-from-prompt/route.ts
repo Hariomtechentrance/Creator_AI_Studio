@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { interpretCampaignPrompt } from "@/lib/ai/campaignPrompt";
 import { renderAdCardPng } from "@/lib/ads/adCardRenderer";
-import { listMetaAdAccounts, searchMetaCities, createMetaCampaign, createMetaAdSet, createMetaAd } from "@/lib/ads/metaAds";
+import { listMetaAdAccounts, searchMetaCities, searchMetaInterests, createMetaCampaign, createMetaAdSet, createMetaAd } from "@/lib/ads/metaAds";
 import { getBrandProfile } from "@/lib/supabase/brand";
 import type { Database } from "@/types/database";
 
@@ -53,6 +53,19 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 2b. Resolve any industry/B2B interests to Meta's interest IDs to eliminate junk reach.
+    const resolvedInterests: Array<{ id: string; name: string }> = [];
+    for (const q of (plan.interestQueries ?? []).slice(0, 5)) {
+      try {
+        const matches = await searchMetaInterests(adsAccount.access_token, q);
+        if (matches[0]) {
+          resolvedInterests.push({ id: matches[0].id, name: matches[0].name });
+        }
+      } catch {
+        // Continue if an interest keyword doesn't resolve
+      }
+    }
+
     // 3. Render the ad creative deterministically (no AI image model) and host it.
     const png = await renderAdCardPng({
       headline: plan.headline,
@@ -81,7 +94,7 @@ export async function POST(request: NextRequest) {
       name: `${name} — Ad Set`,
       goal: plan.objective,
       dailyBudgetInr: plan.dailyBudgetInr,
-      targeting: { cityKeys, ageMin: plan.ageMin, ageMax: plan.ageMax, genders: plan.genders },
+      targeting: { cityKeys, ageMin: plan.ageMin, ageMax: plan.ageMax, genders: plan.genders, interests: resolvedInterests },
       pixelId: org?.meta_pixel_id,
     });
 
@@ -117,6 +130,8 @@ export async function POST(request: NextRequest) {
           age_min: plan.ageMin,
           age_max: plan.ageMax,
           genders: plan.genders,
+          interests: resolvedInterests.map((i) => i.name),
+          is_b2b: plan.isB2B,
         } as unknown as Database["public"]["Tables"]["campaigns"]["Row"]["target_audience"],
         ai_strategy: `${plan.headline}\n\n${primaryText}\n\nCTA: ${plan.ctaLabel}\nDestination: ${destinationUrl.trim()}`,
         start_date: null,
@@ -142,6 +157,8 @@ export async function POST(request: NextRequest) {
       plan,
       imageUrl,
       externalIds: { campaignId, adSetId, adId },
+      isB2B: plan.isB2B,
+      resolvedInterests,
       note: "Built and created PAUSED on Meta from your prompt — review it in Ads Manager before activating.",
     });
   } catch (err) {
